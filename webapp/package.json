@@ -1,0 +1,9 @@
+{
+  "name": "class-feedback-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "课堂反馈生成器（DeepSeek + Word/PDF 导出）",
+  "scripts": {
+    "dev": "python server.py --host 0.0.0.0 --port 7100"
+  }
+}

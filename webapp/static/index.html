@@ -1,0 +1,2827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>课堂反馈生成器</title>
+<script src="/vendor/tailwind.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+<script src="/vendor/jszip.min.js"></script>
+<script src="/vendor/docx-preview.min.js"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+        theme: {
+            extend: {
+                "colors": {
+                    "primary": "#001e73", "on-primary": "#ffffff",
+                    "primary-container": "#002fa7", "surface-tint": "#3654c8",
+                    "secondary": "#821dda", "secondary-container": "#9c42f4",
+                    "tertiary-container": "#7c004d",
+                    "surface": "#f9f9fb", "on-surface": "#1a1c1d",
+                    "on-surface-variant": "#444653", "outline": "#757685",
+                    "outline-variant": "#c4c5d6", "error": "#ba1a1a"
+                },
+                "borderRadius": { "DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px" }
+            }
+        }
+    }
+</script>
+<style>
+    .liquid-glass-bg {
+        background: linear-gradient(135deg, rgba(0,47,167,0.1) 0%, rgba(156,66,244,0.1) 50%, rgba(255,126,187,0.1) 100%);
+        position: fixed; inset: 0; z-index: -2; overflow: hidden;
+    }
+    .mesh-blob { position: absolute; filter: blur(80px); opacity: 0.6; border-radius: 50%; animation: float 20s infinite ease-in-out; }
+    @keyframes float {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(5vw, 5vh) scale(1.1); }
+        66% { transform: translate(-5vw, -5vh) scale(0.9); }
+    }
+    .blob-1 { background: #002fa7; width: 60vw; height: 60vh; top: -10%; left: -10%; }
+    .blob-2 { background: #9c42f4; width: 50vw; height: 50vh; bottom: -10%; right: -10%; animation-delay: -5s; }
+    .blob-3 { background: #ff7ebb; width: 40vw; height: 40vh; top: 30%; left: 30%; animation-delay: -10s; }
+    .glass-card {
+        background: rgba(255,255,255,0.3); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255,255,255,0.4);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05), 0 20px 40px rgba(0,0,0,0.1);
+    }
+    .glass-input {
+        background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);
+        backdrop-filter: blur(10px); transition: all 0.3s ease;
+    }
+    .glass-input:focus {
+        background: rgba(255,255,255,0.4); border-color: #002fa7;
+        box-shadow: 0 0 15px rgba(0,47,167,0.2), inset 0 0 0 1px #002fa7; outline: none;
+    }
+    .btn-liquid {
+        background: linear-gradient(135deg, #002fa7 0%, #3654c8 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 15px rgba(0,47,167,0.3);
+        transition: all 0.3s ease; position: relative; overflow: hidden;
+    }
+    .btn-liquid::after {
+        content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
+        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+        transform: skewX(-25deg); transition: all 0.5s ease;
+    }
+    .btn-liquid:hover:not(:disabled) { transform: scale(1.02) translateY(-2px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 8px 25px rgba(0,47,167,0.4); }
+    .btn-liquid:hover:not(:disabled)::after { left: 150%; }
+    .btn-liquid:active:not(:disabled) { transform: scale(0.98); }
+    .btn-liquid:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-glass {
+        background: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.5);
+        backdrop-filter: blur(10px); transition: all 0.3s ease;
+    }
+    .btn-glass:hover:not(:disabled) { background: rgba(255,255,255,0.6); transform: translateY(-2px); }
+    .btn-glass:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+        width: 20px; height: 20px; border: 2.5px solid rgba(255,255,255,0.35);
+        border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    .spinner-dark { border-color: rgba(0,47,167,0.2); border-top-color: #002fa7; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #preview-doc .docx-wrapper { background: transparent !important; padding: 12px 0 !important; display: block !important; }
+    #preview-doc .docx-wrapper > section.docx { box-shadow: 0 4px 24px rgba(0,0,0,0.12) !important; margin: 0 auto 20px auto !important; }
+    .fade-in { animation: fadeIn 0.5s ease both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .modal-mask { background: rgba(15, 23, 42, 0.35); backdrop-filter: blur(6px); }
+    .provider-tab { transition: all 0.25s ease; border: 1px solid transparent; border-radius: 0.75rem; }
+    .provider-tab.active { background: rgba(255,255,255,0.55); border-color: rgba(255,255,255,0.7); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    .provider-tab:not(.active):hover { background: rgba(255,255,255,0.3); }
+    .provider-tab span { white-space: nowrap; flex-shrink: 0; }
+    /* 设置弹窗：浮动标签与前一个输入框之间留出足够空隙，避免视觉遮挡 */
+    #provider-form .formField { margin-top: 30px; }
+    #provider-form .formField:first-of-type { margin-top: 22px; }
+    /* 预览切换 Word/PDF 分段控件 */
+    .view-toggle { color: #002fa7; }
+    .view-toggle.active { background: #002fa7; color: #fff; }
+    .view-toggle:not(.active):hover { background: rgba(255,255,255,0.55); }
+
+    /* ========== 浮动标签输入框（formField） ========== */
+    .formField { position: relative; margin-top: 18px; }
+    .formField input, .formField textarea {
+        width: 100%;
+        padding: 20px 15px 10px 15px;
+        outline: none;
+        border: none;
+        border-radius: 5px;
+        background-color: #f1f1f1;
+        color: #333;
+        font-size: 16px;
+        font-weight: 550;
+        font-family: inherit;
+        transition: 0.3s ease-in-out;
+        box-shadow: 0 0 0 5px transparent;
+    }
+    .formField textarea { resize: vertical; min-height: 140px; line-height: 1.6; }
+    .formField input:hover, .formField input:focus,
+    .formField textarea:hover, .formField textarea:focus {
+        box-shadow: 0 0 0 2px #333;
+    }
+    .formField span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 13px 15px;
+        color: #333;
+        font-size: 16px;
+        font-weight: 600;
+        text-shadow: -1px -1px 0 #f1f1f1, 1px -1px 0 #f1f1f1, -1px 1px 0 #f1f1f1, 1px 1px 0 #f1f1f1;
+        transition: 0.3s ease-in-out;
+        pointer-events: none;
+    }
+    /* 浮起时整体移到输入框上方外部（原 snippet 的 -12px 只适用于单行 input，
+       textarea 内容多时会与首行文字重叠），缩小并去掉描边 */
+    .formField input:focus + span, .formField input:not(:placeholder-shown) + span,
+    .formField textarea:focus + span, .formField textarea:not(:placeholder-shown) + span {
+        transform: translateY(calc(-100% - 2px)) scale(0.85);
+        transform-origin: left bottom;
+        padding: 2px 6px 2px 2px;
+        font-size: 14px;
+        color: #555;
+        text-shadow: none;
+        transition: 0.3s ease-in-out;
+    }
+
+    /* ========== 玻璃下拉选择器（替代原生 select 弹层） ========== */
+    .glass-select { position: relative; display: inline-block; max-width: 100%; }
+    .glass-select-trigger {
+        display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+        border-radius: 9999px; padding: 6px 14px; font-size: 14px; cursor: pointer;
+        background: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.6);
+        color: inherit; backdrop-filter: blur(8px); transition: background 0.2s ease;
+    }
+    .glass-select-trigger:hover { background: rgba(255,255,255,0.65); }
+    .glass-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .glass-select-panel {
+        position: fixed; z-index: 300; padding: 6px;
+        min-width: 160px; max-width: 380px; max-height: 300px; overflow-y: auto;
+        background: rgba(255,255,255,0.72); backdrop-filter: blur(24px);
+        border: 1px solid rgba(255,255,255,0.65); border-radius: 14px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.14);
+    }
+    .glass-select-option {
+        padding: 8px 12px; border-radius: 10px; cursor: pointer;
+        font-size: 13px; color: #3b3f4c; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; transition: background 0.15s ease;
+    }
+    .glass-select-option:hover { background: rgba(255,255,255,0.7); }
+    .glass-select-option.selected { background: rgba(0,47,167,0.1); color: #002fa7; font-weight: 600; }
+
+    /* ========== 液态玻璃按钮（lq-btn） ========== */
+    @property --angle-1 { syntax: "<angle>"; inherits: false; initial-value: -75deg; }
+    @property --angle-2 { syntax: "<angle>"; inherits: false; initial-value: -45deg; }
+    .lq-wrap {
+        --anim--hover-time: 400ms;
+        --anim--hover-ease: cubic-bezier(0.25, 1, 0.5, 1);
+        position: relative;
+        z-index: 2;
+        border-radius: 999vw;
+        background: transparent;
+        transition: all var(--anim--hover-time) var(--anim--hover-ease);
+    }
+    .lq-shadow {
+        --shadow-cuttoff-fix: 2em;
+        position: absolute;
+        width: calc(100% + var(--shadow-cuttoff-fix));
+        height: calc(100% + var(--shadow-cuttoff-fix));
+        top: calc(0% - var(--shadow-cuttoff-fix) / 2);
+        left: calc(0% - var(--shadow-cuttoff-fix) / 2);
+        filter: blur(clamp(2px, 0.125em, 12px));
+        overflow: visible;
+        pointer-events: none;
+    }
+    .lq-shadow::after {
+        content: "";
+        position: absolute;
+        z-index: 0;
+        inset: 0;
+        border-radius: 999vw;
+        background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.1));
+        width: calc(100% - var(--shadow-cuttoff-fix) - 0.25em);
+        height: calc(100% - var(--shadow-cuttoff-fix) - 0.25em);
+        top: calc(var(--shadow-cuttoff-fix) - 0.5em);
+        left: calc(var(--shadow-cuttoff-fix) - 0.875em);
+        padding: 0.125em;
+        box-sizing: border-box;
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        transition: all var(--anim--hover-time) var(--anim--hover-ease);
+        overflow: visible;
+        opacity: 1;
+    }
+    .lq-btn {
+        --border-width: clamp(1px, 0.0625em, 4px);
+        all: unset;
+        cursor: pointer;
+        position: relative;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        z-index: 3;
+        background: linear-gradient(-75deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05));
+        border-radius: 999vw;
+        box-shadow:
+            inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+            inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+            0 0.25em 0.125em -0.125em rgba(0, 0, 0, 0.2),
+            0 0 0.1em 0.25em inset rgba(255, 255, 255, 0.2),
+            0 0 0 0 rgba(255, 255, 255, 1);
+        backdrop-filter: blur(clamp(1px, 0.125em, 4px));
+        -webkit-backdrop-filter: blur(clamp(1px, 0.125em, 4px));
+        transition: all var(--anim--hover-time) var(--anim--hover-ease);
+    }
+    .lq-btn:hover {
+        transform: scale(0.975);
+        backdrop-filter: blur(0.01em);
+        -webkit-backdrop-filter: blur(0.01em);
+        box-shadow:
+            inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+            inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+            0 0.15em 0.05em -0.1em rgba(0, 0, 0, 0.25),
+            0 0 0.05em 0.1em inset rgba(255, 255, 255, 0.5),
+            0 0 0 0 rgba(255, 255, 255, 1);
+    }
+    .lq-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .lq-btn:disabled:hover { transform: none; }
+    .lq-btn .lq-label {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4em;
+        user-select: none;
+        -webkit-user-select: none;
+        letter-spacing: -0.02em;
+        font-weight: 500;
+        font-size: 1em;
+        color: rgba(50, 50, 50, 1);
+        -webkit-font-smoothing: antialiased;
+        text-shadow: 0em 0.25em 0.05em rgba(0, 0, 0, 0.1);
+        transition: all var(--anim--hover-time) var(--anim--hover-ease);
+        padding-inline: 1.5em;
+        padding-block: 0.875em;
+    }
+    .lq-btn:hover .lq-label { text-shadow: 0.025em 0.025em 0.025em rgba(0, 0, 0, 0.12); }
+    .lq-btn .lq-label::after {
+        content: "";
+        display: block;
+        position: absolute;
+        width: calc(100% - var(--border-width));
+        height: calc(100% - var(--border-width));
+        top: calc(0% + var(--border-width) / 2);
+        left: calc(0% + var(--border-width) / 2);
+        box-sizing: border-box;
+        border-radius: 999vw;
+        overflow: clip;
+        background: linear-gradient(var(--angle-2), rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.5) 40% 50%, rgba(255, 255, 255, 0) 55%);
+        z-index: 3;
+        mix-blend-mode: screen;
+        pointer-events: none;
+        background-size: 200% 200%;
+        background-position: 0% 50%;
+        background-repeat: no-repeat;
+        transition:
+            background-position calc(var(--anim--hover-time) * 1.25) var(--anim--hover-ease),
+            --angle-2 calc(var(--anim--hover-time) * 1.25) var(--anim--hover-ease);
+    }
+    .lq-btn:hover .lq-label::after { background-position: 25% 50%; }
+    .lq-btn:active .lq-label::after { background-position: 50% 15%; --angle-2: -15deg; }
+    .lq-btn::after {
+        content: "";
+        position: absolute;
+        z-index: 1;
+        inset: 0;
+        border-radius: 999vw;
+        width: calc(100% + var(--border-width));
+        height: calc(100% + var(--border-width));
+        top: calc(0% - var(--border-width) / 2);
+        left: calc(0% - var(--border-width) / 2);
+        padding: var(--border-width);
+        box-sizing: border-box;
+        background:
+            conic-gradient(from var(--angle-1) at 50% 50%, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0) 5% 40%, rgba(0, 0, 0, 0.5) 50%, rgba(0, 0, 0, 0) 60% 95%, rgba(0, 0, 0, 0.5)),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5));
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        transition: all var(--anim--hover-time) var(--anim--hover-ease), --angle-1 500ms ease;
+        box-shadow: inset 0 0 0 calc(var(--border-width) / 2) rgba(255, 255, 255, 0.5);
+    }
+    .lq-btn:hover::after { --angle-1: -125deg; }
+    .lq-btn:active::after { --angle-1: -75deg; }
+    @media (hover: none) and (pointer: coarse) {
+        .lq-btn .lq-label::after, .lq-btn:active .lq-label::after { --angle-2: -45deg; }
+        .lq-btn::after, .lq-btn:hover::after, .lq-btn:active::after { --angle-1: -75deg; }
+    }
+    .lq-wrap:has(.lq-btn:hover) .lq-shadow { filter: blur(clamp(2px, 0.0625em, 6px)); }
+    .lq-wrap:has(.lq-btn:hover) .lq-shadow::after { top: calc(var(--shadow-cuttoff-fix) - 0.875em); opacity: 1; }
+    .lq-wrap:has(.lq-btn:active) { transform: rotate3d(1, 0, 0, 25deg); }
+    .lq-wrap:has(.lq-btn:active) .lq-btn {
+        box-shadow:
+            inset 0 0.125em 0.125em rgba(0, 0, 0, 0.05),
+            inset 0 -0.125em 0.125em rgba(255, 255, 255, 0.5),
+            0 0.125em 0.125em -0.125em rgba(0, 0, 0, 0.2),
+            0 0 0.1em 0.25em inset rgba(255, 255, 255, 0.2),
+            0 0.225em 0.05em 0 rgba(0, 0, 0, 0.05),
+            0 0.25em 0 0 rgba(255, 255, 255, 0.75),
+            inset 0 0.25em 0.05em 0 rgba(0, 0, 0, 0.15);
+    }
+    .lq-wrap:has(.lq-btn:active) .lq-shadow { filter: blur(clamp(2px, 0.125em, 12px)); }
+    .lq-wrap:has(.lq-btn:active) .lq-shadow::after { top: calc(var(--shadow-cuttoff-fix) - 0.5em); opacity: 0.75; }
+    .lq-wrap:has(.lq-btn:active) .lq-label { text-shadow: 0.025em 0.25em 0.05em rgba(0, 0, 0, 0.12); }
+
+    /* ========== PDF 加载动画（cell ripple） ========== */
+    .cell-loader {
+        --cell-size: 52px;
+        --cell-spacing: 1px;
+        --cells: 3;
+        --total-size: calc(var(--cells) * (var(--cell-size) + 2 * var(--cell-spacing)));
+        display: flex;
+        flex-wrap: wrap;
+        width: var(--total-size);
+        height: var(--total-size);
+    }
+    .cell-loader .cell {
+        flex: 0 0 var(--cell-size);
+        margin: var(--cell-spacing);
+        background-color: transparent;
+        box-sizing: border-box;
+        border-radius: 4px;
+        animation: 1.5s ripple ease infinite;
+    }
+    .cell-loader .cell.d-1 { animation-delay: 100ms; }
+    .cell-loader .cell.d-2 { animation-delay: 200ms; }
+    .cell-loader .cell.d-3 { animation-delay: 300ms; }
+    .cell-loader .cell.d-4 { animation-delay: 400ms; }
+    .cell-loader .cell:nth-child(1) { --cell-color: #00FF87; }
+    .cell-loader .cell:nth-child(2) { --cell-color: #0CFD95; }
+    .cell-loader .cell:nth-child(3) { --cell-color: #17FBA2; }
+    .cell-loader .cell:nth-child(4) { --cell-color: #23F9B2; }
+    .cell-loader .cell:nth-child(5) { --cell-color: #30F7C3; }
+    .cell-loader .cell:nth-child(6) { --cell-color: #3DF5D4; }
+    .cell-loader .cell:nth-child(7) { --cell-color: #45F4DE; }
+    .cell-loader .cell:nth-child(8) { --cell-color: #53F1F0; }
+    .cell-loader .cell:nth-child(9) { --cell-color: #60EFFF; }
+    @keyframes ripple {
+        0% { background-color: transparent; }
+        30% { background-color: var(--cell-color); }
+        60% { background-color: transparent; }
+        100% { background-color: transparent; }
+    }
+    /* 模型下拉框：不透明玻璃 + 圆角 */
+    .model-select {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08),
+                    inset 0 1px 0 rgba(255,255,255,0.8);
+        transition: all 0.25s ease;
+    }
+    .model-select:hover {
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 12px 32px rgba(0,47,167,0.12),
+                    inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+    .model-select:focus {
+        outline: none;
+        border-color: #002fa7;
+        box-shadow: 0 0 0 3px rgba(0,47,167,0.15), 0 8px 24px rgba(0,0,0,0.08);
+    }
+    .model-select option {
+        background: rgba(255, 255, 255, 0.98);
+        color: #1a1c1d;
+    }
+    /* 编辑器 */
+    .edit-section { border: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.18); border-radius: 0.5rem; padding: 12px; }
+    .edit-item-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .edit-item-row input { font-size: 13px; }
+    .edit-lead { width: 130px; flex-shrink: 0; }
+    .edit-del { flex-shrink: 0; width: 26px; height: 26px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: #ba1a1a; opacity: 0.6; }
+    .edit-del:hover { opacity: 1; background: rgba(186,26,26,0.1); }
+    .edit-add { font-size: 12px; color: #002fa7; padding: 2px 10px; border-radius: 9999px; border: 1px dashed rgba(0,47,167,0.4); }
+    .edit-add:hover { background: rgba(0,47,167,0.08); }
+    .edit-minutes-block { border-left: 3px solid rgba(0,47,167,0.35); padding-left: 10px; margin-bottom: 12px; }
+</style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col antialiased">
+<div class="liquid-glass-bg">
+    <div class="mesh-blob blob-1"></div>
+    <div class="mesh-blob blob-2"></div>
+    <div class="mesh-blob blob-3"></div>
+</div>
+
+<nav class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-white/30 backdrop-blur-[24px] border-b border-white/50 shadow-[0_20px_40px_rgba(0,0,0,0.1)]">
+    <div class="flex items-center gap-3">
+        <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1;">school</span>
+        <span class="font-semibold text-primary tracking-tight">课堂反馈生成器</span>
+    </div>
+    <div class="flex items-center gap-3">
+        <button id="btn-history" type="button" title="历史报告"
+            class="h-10 px-4 rounded-full flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary hover:bg-white/50 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:20px;">history</span><span class="hidden sm:inline">历史报告</span>
+        </button>
+        <button id="btn-students" type="button" title="学生档案"
+            class="h-10 px-4 rounded-full flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary hover:bg-white/50 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:20px;">groups</span><span class="hidden sm:inline">学生</span>
+        </button>
+        <button id="btn-brand" type="button" title="水印设置"
+            class="h-10 px-4 rounded-full flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary hover:bg-white/50 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:20px;">branding_watermark</span><span class="hidden sm:inline">水印</span>
+        </button>
+        <button id="btn-settings" type="button" title="模型设置"
+            class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-white/50 transition-colors">
+            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 0;">settings</span>
+        </button>
+    </div>
+</nav>
+
+<main class="flex-grow pt-24 pb-12 px-6 relative z-10 w-full max-w-[1400px] mx-auto space-y-8">
+
+    <!-- ============ 生成框（输入区） ============ -->
+    <div class="glass-card rounded-xl p-8 relative overflow-hidden">
+        <div class="absolute inset-0 border border-white/50 rounded-xl pointer-events-none" style="clip-path: polygon(0 0,100% 0,100% 1px,1px 1px,1px 100%,0 100%);"></div>
+        <div class="text-center mb-8 space-y-2">
+            <h1 class="text-3xl md:text-4xl font-bold text-primary tracking-tight">课堂反馈</h1>
+            <p class="text-sm text-on-surface-variant">粘贴速览与纪要，自动生成结构化课堂报告</p>
+        </div>
+
+        <div class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="flex flex-col gap-2">
+                    <div class="formField">
+                        <textarea id="course-overview" rows="8" required placeholder=" "></textarea>
+                        <span>课堂速览 *</span>
+                    </div>
+                    <p class="text-xs text-on-surface-variant px-1">核心知识点、教学大纲或整体进度</p>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <div class="formField">
+                        <textarea id="course-notes" rows="8" required placeholder=" "></textarea>
+                        <span>课堂纪要 *</span>
+                    </div>
+                    <p class="text-xs text-on-surface-variant px-1">随堂表现、互动细节、掌握情况及错题分析</p>
+                </div>
+            </div>
+
+            <!-- 封面字段（学生姓名必填，始终展开） -->
+            <div>
+                <div class="text-sm font-medium text-on-surface-variant flex items-center gap-2 select-none mb-1">
+                    <span class="material-symbols-outlined text-primary" style="font-size:20px;">badge</span>
+                    封面信息（学生姓名必填，其余留空则由 AI 自动归纳）
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+                    <div class="formField"><input id="meta-student" type="text" placeholder=" "><span>学生姓名 *</span></div>
+                    <div class="formField"><input id="meta-title" type="text" placeholder=" "><span>课程标题</span></div>
+                    <div class="formField"><input id="meta-subject" type="text" placeholder=" "><span>学科（年级·章节）</span></div>
+                    <div class="formField"><input id="meta-form" type="text" placeholder=" "><span>授课形式</span></div>
+                    <div class="formField"><input id="meta-date" type="text" placeholder=" "><span>报告日期</span></div>
+                </div>
+            </div>
+
+            <!-- 脑图上传 -->
+            <div class="flex flex-col gap-2">
+                <label class="text-sm font-medium text-on-surface flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1;">hub</span>
+                    脑图（可选，支持直接 Ctrl+V 粘贴截图）
+                </label>
+                <div id="dropzone" tabindex="0"
+                    class="glass-input w-full p-6 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-white/40 cursor-pointer hover:bg-white/30 transition-colors min-h-[120px] rounded-lg">
+                    <input type="file" id="mindmap-file" class="hidden" accept="image/*">
+                    <div id="mindmap-empty" class="flex flex-col items-center gap-3">
+                        <span class="material-symbols-outlined text-primary" style="font-size:44px;">cloud_upload</span>
+                        <span class="text-sm text-on-surface-variant">点击、拖拽或粘贴上传课堂脑图图片</span>
+                    </div>
+                    <div id="mindmap-preview" class="hidden flex-col items-center gap-2">
+                        <img id="mindmap-img" class="max-h-40 rounded-lg shadow-md" alt="脑图预览">
+                        <button type="button" id="mindmap-remove" class="text-xs text-error hover:underline">移除脑图</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模型快切 + 生成按钮 -->
+            <div class="flex flex-col items-center gap-3 pt-2">
+                <div class="flex items-center gap-2 text-sm text-on-surface-variant">
+                    <span class="material-symbols-outlined" style="font-size:18px;">neurology</span>
+                    <select id="model-select" class="model-select rounded-full px-4 py-1.5 text-sm text-on-surface cursor-pointer"></select>
+                    <button id="btn-settings-2" type="button" class="text-primary hover:underline text-xs">管理</button>
+                    <span class="text-outline-variant">·</span>
+                    <button id="btn-batch" type="button" class="text-primary hover:underline text-xs flex items-center gap-0.5">
+                        <span class="material-symbols-outlined" style="font-size:16px;">stacks</span>批量生成
+                    </button>
+                </div>
+                <div class="lq-wrap" style="font-size:17px;">
+                    <button id="btn-generate" type="button" class="lq-btn">
+                        <span class="lq-label">
+                            <span id="btn-generate-text" class="tracking-wide">生成课堂反馈</span>
+                            <span id="btn-generate-icon" class="material-symbols-outlined">auto_awesome</span>
+                        </span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+            </div>
+            <div id="status" class="hidden text-center text-sm text-on-surface-variant items-center justify-center gap-2">
+                <span class="spinner spinner-dark inline-block"></span><span id="status-text"></span>
+            </div>
+            <div id="error-box" class="hidden text-center text-sm text-error bg-red-50/60 border border-red-200/60 rounded-lg px-4 py-2"></div>
+        </div>
+    </div>
+
+    <!-- ============ 结果区（生成框正下方）：左编辑 + 右预览 ============ -->
+    <div id="result-section" class="hidden grid-cols-1 xl:grid-cols-2 gap-8 items-start">
+
+        <!-- 左：可编辑修改框 -->
+        <div class="glass-card rounded-xl p-6 relative overflow-hidden">
+            <div class="absolute inset-0 border border-white/50 rounded-xl pointer-events-none" style="clip-path: polygon(0 0,100% 0,100% 1px,1px 1px,1px 100%,0 100%);"></div>
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-xl font-semibold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">edit_note</span>
+                    内容修改
+                </h2>
+                <div class="lq-wrap" style="font-size:14px;">
+                    <button id="btn-apply" type="button" class="lq-btn">
+                        <span class="lq-label">
+                            <span class="material-symbols-outlined" style="font-size:18px;">sync</span>
+                            <span id="btn-apply-text">应用修改并刷新预览</span>
+                        </span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+            </div>
+            <p class="text-xs text-on-surface-variant mb-4">AI 生成后可在此直接修改任意板块，点击「应用修改并刷新预览」重新排版。</p>
+            <div id="editor" class="space-y-4 overflow-auto" style="max-height:72vh;"></div>
+        </div>
+
+        <!-- 右：预览框 -->
+        <div class="glass-card rounded-xl p-6 relative overflow-hidden min-h-[480px] flex flex-col">
+            <div class="absolute inset-0 border border-white/50 rounded-xl pointer-events-none" style="clip-path: polygon(0 0,100% 0,100% 1px,1px 1px,1px 100%,0 100%);"></div>
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-xl font-semibold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">preview</span>
+                    报告预览
+                </h2>
+                <div id="export-bar" class="hidden items-center gap-3 flex-wrap">
+                    <div class="flex items-center rounded-full border border-white/60 bg-white/40 overflow-hidden">
+                        <button id="btn-view-docx" type="button" class="view-toggle active px-4 py-2 text-sm font-medium transition-colors">Word</button>
+                        <button id="btn-view-pdf" type="button" class="view-toggle px-4 py-2 text-sm font-medium transition-colors">PDF</button>
+                    </div>
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-docx" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span class="material-symbols-outlined" style="font-size:18px;">description</span>下载 Word
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-pdf" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span id="btn-pdf-icon" class="material-symbols-outlined" style="font-size:18px;">picture_as_pdf</span>
+                                <span id="btn-pdf-text">导出 PDF</span>
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-print" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span class="material-symbols-outlined" style="font-size:18px;">print</span>
+                                <span id="btn-print-text">直接打印</span>
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="preview-loading" class="hidden flex-grow flex-col items-center justify-center gap-4 py-20 text-on-surface-variant">
+                <span id="preview-spinner" class="spinner spinner-dark" style="width:36px;height:36px;"></span>
+                <div id="pdf-loader" class="cell-loader hidden">
+                    <div class="cell d-0"></div>
+                    <div class="cell d-1"></div>
+                    <div class="cell d-2"></div>
+                    <div class="cell d-1"></div>
+                    <div class="cell d-2"></div>
+                    <div class="cell d-2"></div>
+                    <div class="cell d-3"></div>
+                    <div class="cell d-3"></div>
+                    <div class="cell d-4"></div>
+                </div>
+                <p class="text-sm" id="preview-loading-text">正在处理…</p>
+            </div>
+            <div id="preview-doc" class="hidden flex-grow overflow-y-auto overflow-x-hidden rounded-lg" style="max-height:72vh;"></div>
+            <iframe id="preview-pdf" class="hidden flex-grow rounded-lg border border-white/60 bg-white" style="height:72vh;" title="PDF 预览"></iframe>
+        </div>
+
+        <!-- 下：家长反馈（简易文字版，可编辑后一键复制） -->
+        <div class="glass-card rounded-xl p-6 relative overflow-hidden xl:col-span-2">
+            <div class="absolute inset-0 border border-white/50 rounded-xl pointer-events-none" style="clip-path: polygon(0 0,100% 0,100% 1px,1px 1px,1px 100%,0 100%);"></div>
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-xl font-semibold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">family_restroom</span>
+                    家长反馈 · 简易版
+                </h2>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-pf-regen" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span class="material-symbols-outlined" style="font-size:18px;">autorenew</span>
+                                <span id="btn-pf-regen-text">AI 重新生成</span>
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-pf-copy" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span class="material-symbols-outlined" style="font-size:18px;" id="btn-pf-copy-icon">content_copy</span>
+                                <span id="btn-pf-copy-text">一键复制</span>
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                </div>
+            </div>
+            <p class="text-xs text-on-surface-variant mb-3">AI 已按报告内容生成家长版简易反馈，可直接修改，确认后一键复制发给家长。</p>
+            <textarea id="parent-feedback" class="glass-input w-full rounded-lg p-4 text-sm leading-relaxed text-on-surface"
+                      style="min-height:340px; resize:vertical; font-family:inherit;"
+                      placeholder="生成报告后自动填写；也可点「AI 重新生成」单独生成"></textarea>
+        </div>
+    </div>
+</main>
+
+<!-- ============ 模型设置弹窗 ============ -->
+<div id="settings-modal" class="hidden fixed inset-0 z-[100] modal-mask flex items-center justify-center p-6">
+    <div class="glass-card rounded-xl w-full max-w-2xl p-8 relative fade-in overflow-y-auto" style="background: rgba(255,255,255,0.75); max-height: 86vh;">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-semibold text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">neurology</span>
+                设置
+            </h2>
+            <button id="btn-settings-close" type="button" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/60 transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6">
+            <div id="provider-list" class="flex md:flex-col gap-2 overflow-auto"></div>
+            <div id="provider-form" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <span id="set-provider-label" class="font-semibold text-on-surface"></span>
+                    <label class="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer select-none">
+                        <input type="checkbox" id="set-default" class="rounded accent-[#002fa7]">设为默认供应商
+                    </label>
+                </div>
+                <div class="formField">
+                    <input id="set-base-url" type="text" placeholder=" ">
+                    <span>API 地址（base_url，OpenAI 兼容）</span>
+                </div>
+                <div class="formField">
+                    <input id="set-api-key" type="password" placeholder=" ">
+                    <span>API Key（留空则不修改）</span>
+                </div>
+                <p id="set-api-key-hint" class="text-xs text-on-surface-variant px-1 -mt-2"></p>
+                <div class="formField">
+                    <input id="set-model" list="model-datalist" type="text" placeholder=" ">
+                    <span>当前模型（可下拉选择或手动输入）</span>
+                    <datalist id="model-datalist"></datalist>
+                </div>
+                <div class="formField">
+                    <input id="set-models" type="text" placeholder=" ">
+                    <span>可选模型列表（逗号分隔，出现在快切菜单）</span>
+                </div>
+                <div class="flex items-center justify-between pt-2">
+                    <span id="settings-msg" class="text-xs text-on-surface-variant"></span>
+                    <div class="lq-wrap" style="font-size:14px;">
+                        <button id="btn-settings-save" type="button" class="lq-btn">
+                            <span class="lq-label">
+                                <span class="material-symbols-outlined" style="font-size:18px;">save</span>保存
+                            </span>
+                        </button>
+                        <div class="lq-shadow"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 水印设置弹窗 ============ -->
+<div id="brand-modal" class="hidden fixed inset-0 z-[100] modal-mask flex items-center justify-center p-6">
+    <div class="glass-card rounded-xl w-full max-w-5xl p-8 relative fade-in flex flex-col" style="background: rgba(255,255,255,0.75); max-height: 88vh;">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-2xl font-semibold text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">branding_watermark</span>
+                水印设置
+            </h2>
+            <button id="btn-brand-close" type="button" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/60 transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto pr-1 flex-grow">
+            <!-- 左：设置 -->
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="formField">
+                        <input id="brand-org-name" type="text" placeholder=" ">
+                        <span>机构名称</span>
+                    </div>
+                    <div class="formField">
+                        <input id="brand-contact" type="text" placeholder=" ">
+                        <span>联系方式（页脚右侧，可留空）</span>
+                    </div>
+                </div>
+
+                <!-- 三个槽位卡片由 JS 渲染 -->
+                <div id="brand-slots" class="space-y-3"></div>
+
+                <!-- 正文大水印卡片由 JS 渲染 -->
+                <div id="brand-watermark"></div>
+
+                <div class="flex items-center justify-between pt-2">
+                    <span id="brand-msg" class="text-xs text-on-surface-variant"></span>
+                    <div class="flex gap-2">
+                        <div class="lq-wrap" style="font-size:14px;">
+                            <button id="btn-brand-preview" type="button" class="lq-btn">
+                                <span class="lq-label">
+                                    <span class="material-symbols-outlined" style="font-size:18px;">visibility</span>刷新预览
+                                </span>
+                            </button>
+                            <div class="lq-shadow"></div>
+                        </div>
+                        <div class="lq-wrap" style="font-size:14px;">
+                            <button id="btn-brand-save" type="button" class="lq-btn">
+                                <span class="lq-label">
+                                    <span class="material-symbols-outlined" style="font-size:18px;">save</span>保存设置
+                                </span>
+                            </button>
+                            <div class="lq-shadow"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 右：真实 Word 预览 -->
+            <div class="flex flex-col gap-2 min-h-[300px]">
+                <span class="text-xs font-medium text-on-surface-variant flex items-center gap-1">
+                    <span class="material-symbols-outlined" style="font-size:16px;">preview</span>
+                    效果预览（真实 Word 排版：第 1 页封面无页眉页脚，第 2 页起看页眉 / 页脚 / 正文水印，页码从第 2 页起算第 1 页）
+                </span>
+                <div id="brand-preview-doc" class="flex-grow rounded-lg bg-white/50 border border-white/60 overflow-y-auto p-3 text-center">
+                    <p class="text-sm text-on-surface-variant py-16">点击「刷新预览」查看效果</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 批量生成弹窗 ============ -->
+<div id="batch-modal" class="hidden fixed inset-0 z-[100] modal-mask flex items-center justify-center p-6">
+    <div class="glass-card rounded-xl w-full max-w-4xl p-8 relative fade-in flex flex-col" style="background: rgba(255,255,255,0.75); max-height: 88vh;">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-2xl font-semibold text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">stacks</span>
+                批量生成
+            </h2>
+            <button id="btn-batch-close" type="button" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/60 transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <p class="text-xs text-on-surface-variant mb-4">每节课填一组「速览 + 纪要」（可单独附脑图），将使用当前选择的模型逐课顺序生成；全部完成后可打包下载 ZIP。</p>
+        <div id="batch-entries" class="space-y-4 overflow-y-auto flex-grow pr-1"></div>
+        <div class="flex items-center justify-between pt-4 flex-wrap gap-3">
+            <div class="flex items-center gap-4">
+                <div class="lq-wrap" style="font-size:14px;">
+                    <button id="btn-batch-add" type="button" class="lq-btn">
+                        <span class="lq-label">
+                            <span class="material-symbols-outlined" style="font-size:18px;">add</span>添加一节课
+                        </span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer select-none">
+                    <input type="checkbox" id="batch-include-pdf" class="rounded accent-[#002fa7]">同时转 PDF 一并打包（较慢）
+                </label>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="batch-msg" class="text-xs text-on-surface-variant"></span>
+                <div class="lq-wrap" style="font-size:14px;">
+                    <button id="btn-batch-zip" type="button" disabled class="lq-btn">
+                        <span class="lq-label">
+                            <span class="material-symbols-outlined" style="font-size:18px;">folder_zip</span>打包下载 ZIP
+                        </span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+                <div class="lq-wrap" style="font-size:14px;">
+                    <button id="btn-batch-start" type="button" class="lq-btn">
+                        <span class="lq-label">
+                            <span class="material-symbols-outlined" style="font-size:18px;">play_arrow</span>开始批量生成
+                        </span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 历史报告弹窗 ============ -->
+<div id="history-modal" class="hidden fixed inset-0 z-[100] modal-mask flex items-center justify-center p-6">
+    <div class="glass-card rounded-xl w-full max-w-3xl p-8 relative fade-in flex flex-col" style="background: rgba(255,255,255,0.75); max-height: 82vh;">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-2xl font-semibold text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">history</span>
+                历史报告
+            </h2>
+            <button id="btn-history-close" type="button" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/60 transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="flex items-center gap-2 mb-4">
+            <span class="material-symbols-outlined text-on-surface-variant" style="font-size:18px;">filter_alt</span>
+            <select id="history-filter" class="model-select rounded-full px-3 py-1 text-xs text-on-surface cursor-pointer"></select>
+        </div>
+        <div id="history-list" class="overflow-y-auto flex-grow space-y-3 pr-1"></div>
+        <div id="history-empty" class="hidden text-center text-sm text-on-surface-variant py-16">
+            <span class="material-symbols-outlined" style="font-size:48px;opacity:0.35;">folder_off</span>
+            <p class="mt-2">还没有生成过报告</p>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 学生档案 / 学情趋势弹窗 ============ -->
+<div id="students-modal" class="hidden fixed inset-0 z-[100] modal-mask flex items-center justify-center p-6">
+    <div class="glass-card rounded-xl w-full max-w-4xl p-8 relative fade-in flex flex-col" style="background: rgba(255,255,255,0.75); max-height: 86vh;">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-2xl font-semibold text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">groups</span>
+                <span id="students-title">学生档案</span>
+            </h2>
+            <button id="btn-students-close" type="button" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/60 transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <!-- 学生列表 -->
+        <div id="students-list" class="overflow-y-auto flex-grow pr-1"></div>
+        <!-- 学生详情（学情趋势） -->
+        <div id="student-detail" class="hidden overflow-y-auto flex-grow pr-1 space-y-5">
+            <button id="btn-student-back" type="button" class="text-primary hover:underline text-xs flex items-center gap-0.5">
+                <span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>返回学生列表
+            </button>
+            <div id="student-stats"></div>
+            <div class="flex items-center gap-2 flex-nowrap text-sm text-on-surface-variant">
+                <span class="material-symbols-outlined flex-shrink-0" style="font-size:18px;">date_range</span>
+                <span class="flex-shrink-0 hidden sm:inline">课程范围（AI 总结与 PDF 导出按所选范围）：</span>
+                <span class="flex-shrink-0">从</span>
+                <select id="student-range-from" class="model-select rounded-full px-3 py-1 text-xs text-on-surface cursor-pointer"></select>
+                <span class="flex-shrink-0">到</span>
+                <select id="student-range-to" class="model-select rounded-full px-3 py-1 text-xs text-on-surface cursor-pointer"></select>
+                <span id="student-range-count" class="text-xs flex-shrink-0"></span>
+            </div>
+            <div class="flex items-center gap-4 flex-wrap">
+                <div class="lq-wrap" style="font-size:13px;">
+                    <button id="btn-student-summary" type="button" class="lq-btn">
+                        <span class="lq-label"><span id="btn-student-summary-text" class="tracking-wide">生成 AI 学情总结</span></span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+                <div class="lq-wrap" style="font-size:13px;">
+                    <button id="btn-student-pdf" type="button" class="lq-btn">
+                        <span class="lq-label"><span id="btn-student-pdf-text" class="tracking-wide">导出学情 PDF</span></span>
+                    </button>
+                    <div class="lq-shadow"></div>
+                </div>
+                <span class="text-xs text-on-surface-variant">AI 总结会把该学生的报告摘要发送给当前模型；PDF 会附上最近一次生成的总结</span>
+            </div>
+            <div id="student-summary-box" class="hidden"></div>
+            <div id="student-mistakes"></div>
+            <div id="student-timeline" class="space-y-3"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var currentJob = null;
+    var currentFilename = "课堂报告";
+    var mindmapDataUrl = null;
+    var providersData = null;
+    var editingProvider = null;
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    function escapeHtml(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+        });
+    }
+
+    // ================= 玻璃下拉选择器 =================
+    // 原生 <select> 的选项弹层由操作系统渲染、无法定制样式。
+    // enhanceSelect 把原生 select 隐藏，用「圆角触发钮 + 透明玻璃弹层」替代；
+    // 原生 select 仍是数据源（value/change 事件不变），选项重建后调 syncGlass 同步。
+    var glassSelectRegistry = [];
+
+    function enhanceSelect(native, opts) {
+        opts = opts || {};
+        native.style.display = "none";
+        var wrap = document.createElement("div");
+        wrap.className = "glass-select";
+        if (opts.maxWidth) wrap.style.maxWidth = opts.maxWidth;
+        var trig = document.createElement("button");
+        trig.type = "button";
+        trig.className = "glass-select-trigger";
+        trig.title = native.title || "";
+        var label = document.createElement("span");
+        label.className = "glass-select-label";
+        var icon = document.createElement("span");
+        icon.className = "material-symbols-outlined";
+        icon.style.cssText = "font-size:18px;flex-shrink:0;";
+        icon.textContent = "expand_more";
+        trig.appendChild(label);
+        trig.appendChild(icon);
+        var panel = document.createElement("div");
+        panel.className = "glass-select-panel hidden";
+        document.body.appendChild(panel);
+        wrap.appendChild(trig);
+        native.parentNode.insertBefore(wrap, native.nextSibling);
+
+        function sync() {
+            var options = Array.from(native.options || []);
+            var sel = options[native.selectedIndex];
+            label.textContent = sel ? sel.textContent : (opts.placeholder || "请选择");
+            label.style.fontFamily = (sel && sel.dataset && sel.dataset.css) || "";
+            panel.innerHTML = "";
+            options.forEach(function (o, i) {
+                var item = document.createElement("div");
+                item.className = "glass-select-option" + (i === native.selectedIndex ? " selected" : "");
+                item.textContent = o.textContent;
+                item.title = o.textContent;
+                if (o.dataset && o.dataset.css) item.style.fontFamily = o.dataset.css;
+                item.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    native.value = o.value;
+                    native.dispatchEvent(new Event("change", { bubbles: true }));
+                    close();
+                    sync();
+                });
+                panel.appendChild(item);
+            });
+        }
+        function open() {
+            sync();
+            panel.classList.remove("hidden");
+            var r = trig.getBoundingClientRect();
+            panel.style.minWidth = r.width + "px";
+            var ph = Math.min(panel.offsetHeight, 300);
+            var top = r.bottom + 6;
+            if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+            panel.style.top = top + "px";
+            panel.style.left = Math.min(r.left, window.innerWidth - panel.offsetWidth - 8) + "px";
+        }
+        function close() { panel.classList.add("hidden"); }
+        trig.addEventListener("click", function (e) {
+            e.stopPropagation();
+            var willOpen = panel.classList.contains("hidden");
+            glassSelectRegistry.forEach(function (g) { g.close(); });
+            if (willOpen) open();
+        });
+        document.addEventListener("click", close);
+        window.addEventListener("resize", close);
+        window.addEventListener("scroll", function (e) {
+            if (!panel.contains(e.target)) close();
+        }, true);
+        var api = { sync: sync, close: close, panel: panel };
+        native._glass = api;
+        glassSelectRegistry.push(api);
+        sync();
+        return api;
+    }
+
+    function syncGlass(native) { if (native && native._glass) native._glass.sync(); }
+
+    // ================= 水印 / 机构品牌 =================
+    var brandState = null;            // 服务器返回的品牌配置
+    var brandNewImages = {};          // slot → dataURL（已选择未保存）
+    var brandRemoved = {};            // slot → true（标记删除未保存）
+    var BRAND_SLOTS = [
+        { key: "cover", label: "封面", desc: "封面顶部，图片 + 机构名横排" },
+        { key: "header", label: "页眉", desc: "正文页顶部，机构名与图片靠右" },
+        { key: "footer", label: "页脚", desc: "正文页底部，机构名/联系方式/页码/图片靠右，页码从正文起算" }
+    ];
+
+    function openBrand() {
+        $("brand-modal").classList.remove("hidden");
+        $("brand-msg").textContent = "";
+        loadBrand();
+    }
+    function closeBrand() { $("brand-modal").classList.add("hidden"); }
+
+    function loadBrand() {
+        return fetch("/api/brand").then(function (r) { return r.json(); }).then(function (d) {
+            brandState = d;
+            if (!d.watermark) {
+                brandState.watermark = { enabled: false, type: "text", text: "",
+                    size_pct: 60, opacity_pct: 15, angle: -45, font: "msyh",
+                    color: "216873", has_image: false };
+            }
+            if (!brandState.watermark.font) brandState.watermark.font = "msyh";
+            if (!brandState.watermark.color) brandState.watermark.color = "216873";
+            if (!d.wm_fonts || !d.wm_fonts.length) {
+                brandState.wm_fonts = [
+                    { key: "msyh", label: "微软雅黑", css: "Microsoft YaHei" },
+                    { key: "simkai", label: "楷体", css: "KaiTi" },
+                    { key: "simsun", label: "宋体", css: "SimSun" },
+                    { key: "simfang", label: "仿宋", css: "FangSong" },
+                    { key: "simhei", label: "黑体", css: "SimHei" }];
+            }
+            brandNewImages = {};
+            brandRemoved = {};
+            $("brand-org-name").value = d.org_name || "";
+            $("brand-contact").value = d.contact || "";
+            renderBrandSlots();
+        });
+    }
+
+    // ---- 正文大水印卡片 ----
+    function wmSlider(label, role, min, max, step, val, fmt) {
+        return '<div class="flex items-center gap-3">' +
+            '  <span class="text-xs text-on-surface-variant flex-shrink-0 w-14">' + label + '</span>' +
+            '  <input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" data-role="' + role + '" class="flex-grow accent-[#002fa7]">' +
+            '  <span class="text-xs text-on-surface-variant w-16 text-right" data-role="' + role + '-label">' + fmt(val) + '</span>' +
+            '</div>';
+    }
+
+    function renderBrandWatermark() {
+        var box = $("brand-watermark");
+        var wm = brandState.watermark;
+        var removed = !!brandRemoved["body"];
+        var newImg = brandNewImages["body"];
+        var imgSrc = newImg || (!removed && wm.has_image ? "/api/brand/image?slot=body&t=" + Date.now() : null);
+        var isText = wm.type !== "image";
+
+        var card = document.createElement("div");
+        card.className = "rounded-lg bg-white/50 border border-white/60 p-4 space-y-3 mt-3";
+        card.innerHTML =
+            '<div class="flex items-center justify-between">' +
+            '  <div><span class="font-semibold text-sm text-on-surface">正文水印</span>' +
+            '  <span class="text-xs text-on-surface-variant ml-2">正文每页中央的大水印（封面不显示）</span></div>' +
+            '  <label class="flex items-center gap-1.5 text-xs text-on-surface-variant cursor-pointer select-none">' +
+            '    <input type="checkbox" class="rounded accent-[#002fa7]" data-role="enabled" ' + (wm.enabled ? "checked" : "") + '>启用</label>' +
+            '</div>' +
+            '<div class="flex items-center gap-2">' +
+            '  <span class="text-xs text-on-surface-variant flex-shrink-0 w-14">类型</span>' +
+            '  <button type="button" data-role="type-text" class="rounded-full px-3.5 py-1.5 text-xs transition-colors ' + (isText ? "bg-[#002fa7] text-white" : "glass-input text-on-surface hover:bg-white/70") + '">文字</button>' +
+            '  <button type="button" data-role="type-image" class="rounded-full px-3.5 py-1.5 text-xs transition-colors ' + (!isText ? "bg-[#002fa7] text-white" : "glass-input text-on-surface hover:bg-white/70") + '">图片</button>' +
+            '</div>' +
+            (isText ?
+                '<div class="formField" style="margin-top:22px;">' +
+                '  <input type="text" data-role="text" placeholder=" " value="' + escapeHtml(wm.text || "") + '">' +
+                '  <span>水印文字（留空则用机构名称）</span>' +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                '  <span class="text-xs text-on-surface-variant flex-shrink-0 w-14">字体</span>' +
+                '  <select data-role="font" title="水印字体"></select>' +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                '  <span class="text-xs text-on-surface-variant flex-shrink-0 w-14">颜色</span>' +
+                '  <input type="color" data-role="color" value="#' + (wm.color || "216873") + '" title="自定义颜色" ' +
+                '    style="width:34px;height:26px;border:none;padding:0;background:none;cursor:pointer;border-radius:6px;">' +
+                '  <span class="flex items-center gap-1.5" data-role="presets">' +
+                ['216873', '1e3a8a', 'E65A5A', '787878', '333333'].map(function (pc) {
+                    return '<button type="button" data-color="' + pc + '" title="#' + pc + '" style="width:18px;height:18px;border-radius:50%;background:#' + pc + ';' +
+                        ((wm.color || "216873").toLowerCase() === pc.toLowerCase() ? 'box-shadow:0 0 0 2px #fff,0 0 0 3.5px #' + pc + ';' : 'box-shadow:0 0 0 1px rgba(0,0,0,0.12);') + '"></button>';
+                }).join("") +
+                '  </span>' +
+                '  <span class="text-xs text-on-surface-variant" data-role="color-hex">#' + (wm.color || "216873") + '</span>' +
+                '</div>' :
+                '<div class="flex items-center gap-3">' +
+                '  <div class="w-16 h-16 rounded-lg bg-white/70 flex items-center justify-center overflow-hidden border border-black/5 flex-shrink-0">' +
+                (imgSrc ? '<img src="' + imgSrc + '" class="max-w-full max-h-full">' :
+                          '<span class="material-symbols-outlined text-on-surface-variant" style="font-size:26px;opacity:0.4;">image</span>') +
+                '  </div>' +
+                '  <div class="flex flex-col gap-1.5">' +
+                '    <button type="button" data-role="upload" class="glass-input rounded-full px-3.5 py-1.5 text-xs text-on-surface hover:bg-white/70 transition-colors flex items-center gap-1">' +
+                '      <span class="material-symbols-outlined" style="font-size:16px;">upload</span>上传图片（PNG/JPG）</button>' +
+                '    <button type="button" data-role="remove" class="rounded-full px-3.5 py-1.5 text-xs text-on-surface-variant hover:text-red-600 transition-colors flex items-center gap-1">' +
+                '      <span class="material-symbols-outlined" style="font-size:16px;">delete</span>删除图片</button>' +
+                '  </div>' +
+                '  <input type="file" accept="image/png,image/jpeg" class="hidden" data-role="file">' +
+                '</div>') +
+            wmSlider("大小", "size", 10, 150, 5, wm.size_pct, function (v) { return v + " %"; }) +
+            wmSlider("不透明度", "opacity", 3, 100, 1, wm.opacity_pct, function (v) { return v + " %"; }) +
+            wmSlider("倾斜角度", "angle", -90, 90, 5, wm.angle, function (v) { return v + " °"; }) +
+            '<p class="text-xs text-on-surface-variant" style="opacity:0.75;">大小为水印宽度占正文版心的百分比；不透明度越小水印越浅。</p>';
+        if (box._fontSel && box._fontSel._glass && box._fontSel._glass.panel) {
+            box._fontSel._glass.panel.remove();
+        }
+        box.innerHTML = "";
+        box.appendChild(card);
+
+        function bindSlider(role, key, fmt) {
+            var el = card.querySelector('[data-role="' + role + '"]');
+            el.addEventListener("input", function () {
+                wm[key] = parseFloat(this.value);
+                card.querySelector('[data-role="' + role + '-label"]').textContent = fmt(this.value);
+            });
+        }
+        bindSlider("size", "size_pct", function (v) { return v + " %"; });
+        bindSlider("opacity", "opacity_pct", function (v) { return v + " %"; });
+        bindSlider("angle", "angle", function (v) { return v + " °"; });
+        card.querySelector('[data-role="enabled"]').addEventListener("change", function () {
+            wm.enabled = this.checked;
+        });
+        card.querySelector('[data-role="type-text"]').addEventListener("click", function () {
+            if (wm.type === "text") return;
+            wm.type = "text";
+            renderBrandWatermark();
+        });
+        card.querySelector('[data-role="type-image"]').addEventListener("click", function () {
+            if (wm.type === "image") return;
+            wm.type = "image";
+            renderBrandWatermark();
+        });
+        var textInput = card.querySelector('[data-role="text"]');
+        if (textInput) {
+            textInput.addEventListener("input", function () { wm.text = this.value; });
+        }
+        var fontSel = card.querySelector('[data-role="font"]');
+        if (fontSel) {
+            (brandState.wm_fonts || []).forEach(function (f) {
+                var o = document.createElement("option");
+                o.value = f.key;
+                o.textContent = f.label;
+                o.dataset.css = f.css;
+                fontSel.appendChild(o);
+            });
+            fontSel.value = wm.font || "msyh";
+            fontSel.addEventListener("change", function () { wm.font = this.value; });
+            if (typeof enhanceSelect === "function") {
+                enhanceSelect(fontSel, { maxWidth: "230px" });
+                box._fontSel = fontSel;
+            }
+        }
+        var colorInput = card.querySelector('[data-role="color"]');
+        if (colorInput) {
+            colorInput.addEventListener("input", function () {
+                wm.color = this.value.replace(/^#/, "");
+                card.querySelector('[data-role="color-hex"]').textContent = this.value;
+            });
+            card.querySelectorAll('[data-color]').forEach(function (dot) {
+                dot.addEventListener("click", function () {
+                    wm.color = dot.getAttribute("data-color");
+                    renderBrandWatermark();
+                });
+            });
+        }
+        var upBtn = card.querySelector('[data-role="upload"]');
+        if (upBtn) {
+            upBtn.addEventListener("click", function () {
+                card.querySelector('[data-role="file"]').click();
+            });
+            card.querySelector('[data-role="file"]').addEventListener("change", function () {
+                var f = this.files && this.files[0];
+                if (!f) return;
+                var rd = new FileReader();
+                rd.onload = function () {
+                    brandNewImages["body"] = rd.result;
+                    delete brandRemoved["body"];
+                    renderBrandWatermark();
+                    brandHint("正文水印图片已选择，保存后生效", "");
+                };
+                rd.readAsDataURL(f);
+            });
+            card.querySelector('[data-role="remove"]').addEventListener("click", function () {
+                delete brandNewImages["body"];
+                brandRemoved["body"] = true;
+                renderBrandWatermark();
+                brandHint("正文水印图片将在保存后删除", "");
+            });
+        }
+    }
+
+    function renderBrandSlots() {
+        var box = $("brand-slots");
+        box.innerHTML = "";
+        BRAND_SLOTS.forEach(function (s) {
+            var st = (brandState.slots && brandState.slots[s.key]) || { enabled: true, height_cm: 1, has_image: false };
+            var removed = !!brandRemoved[s.key];
+            var newImg = brandNewImages[s.key];
+            var imgSrc = newImg || (!removed && st.has_image ? "/api/brand/image?slot=" + s.key + "&t=" + Date.now() : null);
+
+            var card = document.createElement("div");
+            card.className = "rounded-lg bg-white/50 border border-white/60 p-4 space-y-3";
+            card.innerHTML =
+                '<div class="flex items-center justify-between">' +
+                '  <div><span class="font-semibold text-sm text-on-surface">' + s.label + '</span>' +
+                '  <span class="text-xs text-on-surface-variant ml-2">' + s.desc + '</span></div>' +
+                '  <label class="flex items-center gap-1.5 text-xs text-on-surface-variant cursor-pointer select-none">' +
+                '    <input type="checkbox" class="rounded accent-[#002fa7]" data-role="enabled" ' + (st.enabled ? "checked" : "") + '>启用</label>' +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                '  <div class="w-16 h-16 rounded-lg bg-white/70 flex items-center justify-center overflow-hidden border border-black/5 flex-shrink-0">' +
+                (imgSrc ? '<img src="' + imgSrc + '" class="max-w-full max-h-full">' :
+                          '<span class="material-symbols-outlined text-on-surface-variant" style="font-size:26px;opacity:0.4;">image</span>') +
+                '  </div>' +
+                '  <div class="flex flex-col gap-1.5">' +
+                '    <button type="button" data-role="upload" class="glass-input rounded-full px-3.5 py-1.5 text-xs text-on-surface hover:bg-white/70 transition-colors flex items-center gap-1">' +
+                '      <span class="material-symbols-outlined" style="font-size:16px;">upload</span>上传图片（PNG/JPG）</button>' +
+                '    <button type="button" data-role="remove" class="rounded-full px-3.5 py-1.5 text-xs text-on-surface-variant hover:text-red-600 transition-colors flex items-center gap-1">' +
+                '      <span class="material-symbols-outlined" style="font-size:16px;">delete</span>删除图片</button>' +
+                '  </div>' +
+                '  <input type="file" accept="image/png,image/jpeg" class="hidden" data-role="file">' +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                '  <span class="text-xs text-on-surface-variant flex-shrink-0">图片高度</span>' +
+                '  <input type="range" min="0.3" max="4" step="0.1" value="' + st.height_cm + '" data-role="height" class="flex-grow accent-[#002fa7]">' +
+                '  <span class="text-xs text-on-surface-variant w-14 text-right" data-role="height-label">' + st.height_cm.toFixed(1) + ' cm</span>' +
+                '</div>';
+            box.appendChild(card);
+
+            card.querySelector('[data-role="height"]').addEventListener("input", function () {
+                card.querySelector('[data-role="height-label"]').textContent = parseFloat(this.value).toFixed(1) + " cm";
+                st.height_cm = parseFloat(this.value);
+            });
+            card.querySelector('[data-role="enabled"]').addEventListener("change", function () {
+                st.enabled = this.checked;
+            });
+            card.querySelector('[data-role="upload"]').addEventListener("click", function () {
+                card.querySelector('[data-role="file"]').click();
+            });
+            card.querySelector('[data-role="file"]').addEventListener("change", function () {
+                var f = this.files && this.files[0];
+                if (!f) return;
+                var rd = new FileReader();
+                rd.onload = function () {
+                    brandNewImages[s.key] = rd.result;
+                    delete brandRemoved[s.key];
+                    renderBrandSlots();
+                    brandHint("「" + s.label + "」图片已选择，保存后生效", "");
+                };
+                rd.readAsDataURL(f);
+            });
+            card.querySelector('[data-role="remove"]').addEventListener("click", function () {
+                delete brandNewImages[s.key];
+                brandRemoved[s.key] = true;
+                renderBrandSlots();
+                brandHint("「" + s.label + "」图片将在保存后删除", "");
+            });
+        });
+        renderBrandWatermark();
+    }
+
+    function brandHint(msg, color) {
+        $("brand-msg").textContent = msg;
+        $("brand-msg").style.color = color || "";
+    }
+
+    function brandPayload() {
+        var body = {
+            org_name: $("brand-org-name").value,
+            contact: $("brand-contact").value,
+            slots: {}, images: {}, remove_images: []
+        };
+        BRAND_SLOTS.forEach(function (s) {
+            var st = brandState.slots[s.key];
+            body.slots[s.key] = { enabled: st.enabled, height_cm: st.height_cm };
+            if (brandNewImages[s.key]) body.images[s.key] = brandNewImages[s.key];
+            if (brandRemoved[s.key] && !brandNewImages[s.key]) body.remove_images.push(s.key);
+        });
+        var wm = brandState.watermark;
+        body.watermark = { enabled: wm.enabled, type: wm.type, text: wm.text,
+                           size_pct: wm.size_pct, opacity_pct: wm.opacity_pct,
+                           angle: wm.angle, font: wm.font, color: wm.color };
+        if (brandNewImages["body"]) body.images["body"] = brandNewImages["body"];
+        if (brandRemoved["body"] && !brandNewImages["body"]) body.remove_images.push("body");
+        return body;
+    }
+
+    function saveBrand() {
+        $("btn-brand-save").disabled = true;
+        fetch("/api/brand", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(brandPayload())
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d.error) { brandHint(d.error, "#ba1a1a"); return; }
+            brandState = d;
+            brandNewImages = {};
+            brandRemoved = {};
+            renderBrandSlots();
+            brandHint("✓ 已保存，立即生效（新报告与重新导出的旧报告都会应用）", "#166534");
+        }).catch(function (e) {
+            brandHint(String(e), "#ba1a1a");
+        }).finally(function () {
+            $("btn-brand-save").disabled = false;
+        });
+    }
+
+    async function previewBrand() {
+        var container = $("brand-preview-doc");
+        var wm = brandState.watermark;
+        if (wm.enabled && wm.type === "text" &&
+                !(wm.text || "").trim() && !$("brand-org-name").value.trim()) {
+            brandHint("提示：文字水印没有内容——请填写「水印文字」或「机构名称」，或切换为图片类型", "#b45309");
+        }
+        if (wm.enabled && wm.type === "image" &&
+                !brandNewImages["body"] && (brandRemoved["body"] || !wm.has_image)) {
+            brandHint("提示：图片水印尚未选择图片", "#b45309");
+        }
+        container.innerHTML = '<p class="text-sm text-on-surface-variant py-16">预览生成中…</p>';
+        $("btn-brand-preview").disabled = true;
+        try {
+            var resp = await fetch("/api/brand/preview", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(brandPayload())
+            });
+            if (!resp.ok) {
+                var d = await resp.json().catch(function () { return {}; });
+                throw new Error(d.error || ("HTTP " + resp.status));
+            }
+            var blob = await resp.blob();
+            container.innerHTML = "";
+            await docx.renderAsync(blob, container, null, {
+                className: "docx", inWrapper: true, ignoreWidth: false, ignoreHeight: false
+            });
+            // 等比缩放到预览栏宽
+            var cw = container.clientWidth - 24;
+            container.querySelectorAll("section.docx").forEach(function (sec) {
+                var w = sec.offsetWidth;
+                if (w) sec.style.zoom = String(Math.min(1, cw / w));
+            });
+        } catch (e) {
+            container.innerHTML = '<p class="text-sm py-16" style="color:#ba1a1a;">预览失败：' + String(e.message || e) + '</p>';
+        } finally {
+            $("btn-brand-preview").disabled = false;
+        }
+    }
+
+    // ================= 批量生成 =================
+    var batchEntries = [];
+    var batchRunning = false;
+
+    function openBatch() {
+        if (!batchEntries.length) { addBatchEntryState(); addBatchEntryState(); }
+        renderBatchEntries();
+        $("batch-msg").textContent = "";
+        $("batch-modal").classList.remove("hidden");
+    }
+    function closeBatch() { if (!batchRunning) $("batch-modal").classList.add("hidden"); }
+
+    function addBatchEntryState() {
+        batchEntries.push({ overview: "", notes: "", mindmap: null, student: "",
+                            meta: { title: "", subject: "", form: "", date: "" },
+                            metaOpen: false,
+                            status: "", job: null, ok: false, err: false,
+                            pf: "", pfOpen: false });
+    }
+
+    function renderBatchEntries() {
+        var box = $("batch-entries");
+        box.innerHTML = "";
+        batchEntries.forEach(function (en, i) {
+            var card = document.createElement("div");
+            card.className = "rounded-lg bg-white/50 border border-white/60 p-4 space-y-3";
+            var stCls = en.ok ? "text-green-700" : (en.err ? "text-red-600" : "text-on-surface-variant");
+            card.innerHTML =
+                '<div class="flex items-center justify-between">' +
+                '  <span class="font-semibold text-sm text-on-surface">第 ' + (i + 1) + ' 节</span>' +
+                '  <div class="flex items-center gap-2">' +
+                (en.status ? '<span class="text-xs ' + stCls + '">' + en.status + '</span>' : '') +
+                '    <button type="button" data-role="del" class="w-7 h-7 rounded-full flex items-center justify-center text-on-surface-variant hover:text-red-600 hover:bg-white/60 transition-colors" title="删除">' +
+                '      <span class="material-symbols-outlined" style="font-size:18px;">close</span></button>' +
+                '  </div>' +
+                '</div>' +
+                '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">' +
+                '  <div class="formField"><textarea data-role="overview" rows="4" placeholder=" "></textarea><span>课堂速览（必填）</span></div>' +
+                '  <div class="formField"><textarea data-role="notes" rows="4" placeholder=" "></textarea><span>课堂纪要（必填）</span></div>' +
+                '</div>' +
+                '<div class="formField"><input type="text" data-role="student" placeholder=" "><span>学生姓名（必填，用于学生档案归档）</span></div>' +
+                // ---- 封面信息（可选，折叠；不填则由 AI 归纳） ----
+                '<div class="rounded-lg bg-white/60 border border-white/60">' +
+                '  <button type="button" data-role="meta-toggle" class="w-full flex items-center justify-between px-3 py-2 text-xs text-primary font-medium hover:bg-white/50 rounded-lg transition-colors">' +
+                '    <span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:16px;">badge</span>封面信息（可选，不填则由 AI 归纳）</span>' +
+                '    <span class="material-symbols-outlined" style="font-size:16px;">' + (en.metaOpen ? "expand_less" : "expand_more") + '</span>' +
+                '  </button>' +
+                (en.metaOpen ?
+                '  <div class="px-3 pb-3 grid grid-cols-1 md:grid-cols-2 gap-x-3">' +
+                '    <div class="formField"><input type="text" data-role="meta-title" placeholder=" "><span>课程标题</span></div>' +
+                '    <div class="formField"><input type="text" data-role="meta-subject" placeholder=" "><span>学科（年级·章节）</span></div>' +
+                '    <div class="formField"><input type="text" data-role="meta-form" placeholder=" "><span>授课形式</span></div>' +
+                '    <div class="formField"><input type="text" data-role="meta-date" placeholder=" "><span>报告日期</span></div>' +
+                '  </div>' : '') +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                '  <div data-role="mm-box" class="h-12 w-12 rounded-lg bg-white/70 border border-black/5 flex items-center justify-center overflow-hidden flex-shrink-0">' +
+                (en.mindmap
+                    ? '<img src="' + en.mindmap + '" class="max-w-full max-h-full">'
+                    : '<span class="material-symbols-outlined text-on-surface-variant" style="font-size:20px;opacity:0.4;">hub</span>') +
+                '  </div>' +
+                '  <button type="button" data-role="mm-upload" class="glass-input rounded-full px-3.5 py-1.5 text-xs text-on-surface hover:bg-white/70 transition-colors flex items-center gap-1">' +
+                '    <span class="material-symbols-outlined" style="font-size:16px;">add_photo_alternate</span>' +
+                (en.mindmap ? "更换脑图" : "添加脑图（可选）") + '</button>' +
+                (en.mindmap
+                    ? '<button type="button" data-role="mm-remove" class="rounded-full px-3 py-1.5 text-xs text-on-surface-variant hover:text-red-600 transition-colors">移除</button>'
+                    : "") +
+                '  <input type="file" accept="image/*" class="hidden" data-role="mm-file">' +
+                '</div>' +
+                // ---- 家长反馈（生成成功后展示，可展开修改、单独复制） ----
+                (en.ok && en.pf ?
+                '<div class="rounded-lg bg-white/60 border border-white/60">' +
+                '  <button type="button" data-role="pf-toggle" class="w-full flex items-center justify-between px-3 py-2 text-xs text-primary font-medium hover:bg-white/50 rounded-lg transition-colors">' +
+                '    <span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:16px;">family_restroom</span>家长反馈 · 已生成（点我展开修改）</span>' +
+                '    <span class="material-symbols-outlined" style="font-size:16px;">' + (en.pfOpen ? "expand_less" : "expand_more") + '</span>' +
+                '  </button>' +
+                (en.pfOpen ?
+                '  <div class="px-3 pb-3 space-y-2">' +
+                '    <textarea data-role="pf-text" class="glass-input w-full rounded-lg p-3 text-xs leading-relaxed text-on-surface" style="min-height:180px;resize:vertical;font-family:inherit;"></textarea>' +
+                '    <div class="flex justify-end">' +
+                '      <button type="button" data-role="pf-copy" class="glass-input rounded-full px-3.5 py-1.5 text-xs text-on-surface hover:bg-white/70 transition-colors flex items-center gap-1">' +
+                '        <span class="material-symbols-outlined" style="font-size:14px;">content_copy</span><span data-role="pf-copy-label">复制家长反馈</span>' +
+                '      </button>' +
+                '    </div>' +
+                '  </div>' : '') +
+                '</div>' : '');
+            var to = card.querySelector('[data-role="overview"]');
+            var tn = card.querySelector('[data-role="notes"]');
+            var ts = card.querySelector('[data-role="student"]');
+            to.value = en.overview;
+            tn.value = en.notes;
+            ts.value = en.student || "";
+            to.disabled = tn.disabled = ts.disabled = batchRunning;
+            to.addEventListener("input", function () { en.overview = this.value; });
+            tn.addEventListener("input", function () { en.notes = this.value; });
+            ts.addEventListener("input", function () { en.student = this.value; });
+            // ---- 封面信息：展开/收起 + 四个字段 ----
+            var metaToggle = card.querySelector('[data-role="meta-toggle"]');
+            if (metaToggle) {
+                metaToggle.addEventListener("click", function () {
+                    if (batchRunning) return;
+                    en.metaOpen = !en.metaOpen;
+                    renderBatchEntries();
+                });
+            }
+            ["title", "subject", "form", "date"].forEach(function (k) {
+                var inp = card.querySelector('[data-role="meta-' + k + '"]');
+                if (!inp) return;
+                inp.value = en.meta[k] || "";
+                inp.disabled = batchRunning;
+                inp.addEventListener("input", function () { en.meta[k] = this.value; });
+            });
+            var delBtn = card.querySelector('[data-role="del"]');
+            if (batchRunning) delBtn.style.display = "none";
+            delBtn.addEventListener("click", function () {
+                if (batchRunning) return;
+                batchEntries.splice(i, 1);
+                renderBatchEntries();
+            });
+            // ---- 脑图（每课单独上传） ----
+            var mmFile = card.querySelector('[data-role="mm-file"]');
+            var mmUpload = card.querySelector('[data-role="mm-upload"]');
+            mmUpload.disabled = batchRunning;
+            mmUpload.addEventListener("click", function () {
+                mmFile.click();
+            });
+            mmFile.addEventListener("change", function () {
+                var f = this.files && this.files[0];
+                if (!f) return;
+                var rd = new FileReader();
+                rd.onload = function () { en.mindmap = rd.result; renderBatchEntries(); };
+                rd.readAsDataURL(f);
+            });
+            var mmRemove = card.querySelector('[data-role="mm-remove"]');
+            if (mmRemove) {
+                if (batchRunning) mmRemove.style.display = "none";
+                mmRemove.addEventListener("click", function () {
+                    en.mindmap = null;
+                    renderBatchEntries();
+                });
+            }
+            // ---- 家长反馈：展开/编辑/复制 ----
+            var pfToggle = card.querySelector('[data-role="pf-toggle"]');
+            if (pfToggle) {
+                pfToggle.addEventListener("click", function () {
+                    en.pfOpen = !en.pfOpen;
+                    renderBatchEntries();
+                });
+            }
+            var pfText = card.querySelector('[data-role="pf-text"]');
+            if (pfText) {
+                pfText.value = en.pf;
+                pfText.addEventListener("input", function () { en.pf = this.value; });
+            }
+            var pfCopy = card.querySelector('[data-role="pf-copy"]');
+            if (pfCopy) {
+                pfCopy.addEventListener("click", async function () {
+                    var text = (en.pf || "").trim();
+                    if (!text) return;
+                    var label = card.querySelector('[data-role="pf-copy-label"]');
+                    var ok = false;
+                    try {
+                        if (navigator.clipboard && window.isSecureContext !== false) {
+                            await navigator.clipboard.writeText(text);
+                            ok = true;
+                        }
+                    } catch (e) { /* 回退 execCommand */ }
+                    if (!ok && pfText) {
+                        pfText.focus();
+                        pfText.select();
+                        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+                        window.getSelection().removeAllRanges();
+                    }
+                    if (label && ok) {
+                        label.textContent = "已复制 ✓";
+                        setTimeout(function () { label.textContent = "复制家长反馈"; }, 1500);
+                    }
+                });
+            }
+            box.appendChild(card);
+        });
+    }
+
+    function currentModelSel() {
+        var selVal = $("model-select").value || "";
+        var sep = selVal.indexOf("|");
+        return { provider: sep >= 0 ? selVal.slice(0, sep) : selVal,
+                 model: sep >= 0 ? selVal.slice(sep + 1) : "" };
+    }
+
+    async function startBatch() {
+        var todo = [];
+        batchEntries.forEach(function (en) {
+            en.status = ""; en.ok = false; en.err = false; en.job = null;
+            en.pf = ""; en.pfOpen = false;
+            if (en.overview.trim() && en.notes.trim() && (en.student || "").trim()) todo.push(en);
+            else en.status = "已跳过（速览/纪要/学生姓名未填）";
+        });
+        if (!todo.length) { $("batch-msg").textContent = "请至少完整填写一节课的速览、纪要和学生姓名"; return; }
+        batchRunning = true;
+        $("btn-batch-start").disabled = true;
+        $("btn-batch-add").disabled = true;
+        $("btn-batch-zip").disabled = true;
+        var sel = currentModelSel();
+        for (var k = 0; k < todo.length; k++) {
+            var en = todo[k];
+            en.status = "生成中…（" + (k + 1) + "/" + todo.length + "）";
+            $("batch-msg").textContent = "进度 " + k + "/" + todo.length;
+            renderBatchEntries();
+            try {
+                var reqBody = { overview: en.overview, notes: en.notes,
+                                provider: sel.provider, model: sel.model };
+                if (en.mindmap) reqBody.mindmap = en.mindmap;
+                if ((en.student || "").trim()) reqBody.student = en.student.trim();
+                // 封面信息：任一字段有值才随请求传给 AI 作为提示
+                var meta = {};
+                ["title", "subject", "form", "date"].forEach(function (k) {
+                    var v = (en.meta[k] || "").trim();
+                    if (v) meta[k] = v;
+                });
+                if (Object.keys(meta).length) reqBody.meta = meta;
+                var resp = await fetch("/api/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(reqBody)
+                });
+                var d = await resp.json();
+                if (d.error) throw new Error(d.error);
+                en.ok = true;
+                en.job = d.job;
+                en.pf = (d.data && d.data.parent_feedback) || "";
+                en.pfOpen = false;
+                en.status = "✓ " + d.filename;
+            } catch (e) {
+                en.err = true;
+                en.status = "✗ " + String(e.message || e);
+            }
+            renderBatchEntries();
+        }
+        batchRunning = false;
+        $("btn-batch-start").disabled = false;
+        $("btn-batch-add").disabled = false;
+        var okCount = batchEntries.filter(function (en) { return en.ok && en.job; }).length;
+        $("btn-batch-zip").disabled = !okCount;
+        $("batch-msg").textContent = "完成：" + okCount + " 成功 / " + (todo.length - okCount) + " 失败";
+        renderBatchEntries();
+    }
+
+    async function zipBatch() {
+        var jobs = batchEntries.filter(function (en) { return en.ok && en.job; })
+                               .map(function (en) { return en.job; });
+        if (!jobs.length) return;
+        $("btn-batch-zip").disabled = true;
+        $("batch-msg").textContent = "打包中…";
+        try {
+            var feedbacks = {};
+            batchEntries.forEach(function (en) {
+                if (en.ok && en.job && (en.pf || "").trim()) feedbacks[en.job] = en.pf;
+            });
+            var resp = await fetch("/api/batch_zip", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ jobs: jobs, include_pdf: $("batch-include-pdf").checked,
+                                       feedbacks: feedbacks })
+            });
+            if (!resp.ok) {
+                var d = await resp.json().catch(function () { return {}; });
+                throw new Error(d.error || ("HTTP " + resp.status));
+            }
+            var blob = await resp.blob();
+            var a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "批量课堂报告.zip";
+            a.click();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+            $("batch-msg").textContent = "✓ ZIP 已下载（" + jobs.length + " 份报告）";
+        } catch (e) {
+            $("batch-msg").textContent = "打包失败：" + String(e.message || e);
+        } finally {
+            $("btn-batch-zip").disabled = false;
+        }
+    }
+
+    // ================= 模型供应商 =================
+    function loadProviders() {
+        return fetch("/api/providers").then(function (r) { return r.json(); }).then(function (d) {
+            providersData = d;
+            renderQuickSwitch();
+        });
+    }
+
+    function renderQuickSwitch() {
+        var sel = $("model-select");
+        sel.innerHTML = "";
+        var options = [];
+        providersData.providers.forEach(function (p) {
+            var models = p.models && p.models.length ? p.models : (p.model ? [p.model] : []);
+            models.forEach(function (m) {
+                options.push({ val: p.name + "|" + m, text: p.label + " · " + m + (p.has_key ? "" : "（未配 Key）") });
+            });
+            if (!models.length) options.push({ val: p.name + "|", text: p.label + "（未配置）" });
+        });
+        options.forEach(function (o) {
+            var opt = document.createElement("option");
+            opt.value = o.val; opt.textContent = o.text;
+            sel.appendChild(opt);
+        });
+        var cur = providersData.providers.find(function (p) { return p.name === providersData.current; });
+        sel.value = providersData.current + "|" + (cur ? cur.model : "");
+        if (!sel.value) sel.selectedIndex = 0;
+        syncGlass(sel);
+    }
+
+    // ================= 设置弹窗 =================
+    function openSettings() {
+        editingProvider = providersData.current || (providersData.providers[0] || {}).name;
+        renderProviderList();
+        fillSettingsForm(editingProvider);
+        $("settings-msg").textContent = "";
+        $("settings-modal").classList.remove("hidden");
+    }
+    function closeSettings() { $("settings-modal").classList.add("hidden"); }
+
+    function renderProviderList() {
+        var box = $("provider-list");
+        box.innerHTML = "";
+        providersData.providers.forEach(function (p) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "provider-tab text-left rounded-lg px-4 py-3 flex items-center gap-2" +
+                (p.name === editingProvider ? " active" : "");
+            var dot = p.has_key
+                ? '<span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span>'
+                : '<span class="w-2 h-2 rounded-full bg-gray-300 inline-block"></span>';
+            var star = p.name === providersData.current ? ' <span class="text-xs text-primary">★默认</span>' : '';
+            btn.innerHTML = dot + '<span class="text-sm font-medium text-on-surface">' + p.label + '</span>' + star;
+            btn.addEventListener("click", function () {
+                editingProvider = p.name;
+                renderProviderList();
+                fillSettingsForm(p.name);
+            });
+            box.appendChild(btn);
+        });
+    }
+
+    function fillSettingsForm(name) {
+        var p = providersData.providers.find(function (x) { return x.name === name; });
+        if (!p) return;
+        $("set-provider-label").textContent = p.label;
+        $("set-base-url").value = p.base_url || "";
+        $("set-api-key").value = "";
+        $("set-api-key").placeholder = " ";
+        $("set-api-key-hint").textContent = p.has_key ? ("已保存：" + p.key_masked) : "尚未配置 API Key";
+        $("set-model").value = p.model || "";
+        $("set-models").value = (p.models || []).join(", ");
+        $("set-default").checked = (name === providersData.current);
+        var dl = $("model-datalist");
+        dl.innerHTML = "";
+        (p.models || []).forEach(function (m) {
+            var o = document.createElement("option"); o.value = m; dl.appendChild(o);
+        });
+    }
+
+    function saveSettings() {
+        var updates = {};
+        updates[editingProvider] = {
+            base_url: $("set-base-url").value,
+            api_key: $("set-api-key").value,
+            model: $("set-model").value,
+            models: $("set-models").value
+        };
+        var body = { updates: updates };
+        if ($("set-default").checked) body.current = editingProvider;
+        $("btn-settings-save").disabled = true;
+        fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d.error) { $("settings-msg").textContent = d.error; $("settings-msg").style.color = "#ba1a1a"; return; }
+            providersData = d;
+            renderQuickSwitch();
+            renderProviderList();
+            fillSettingsForm(editingProvider);
+            $("settings-msg").textContent = "✓ 已保存，立即生效（无需重启）";
+            $("settings-msg").style.color = "#166534";
+        }).catch(function (e) {
+            $("settings-msg").textContent = String(e);
+            $("settings-msg").style.color = "#ba1a1a";
+        }).finally(function () {
+            $("btn-settings-save").disabled = false;
+        });
+    }
+
+    // ================= 历史报告 =================
+    function openHistory() {
+        $("history-modal").classList.remove("hidden");
+        loadHistory();
+    }
+    function closeHistory() { $("history-modal").classList.add("hidden"); }
+
+    var historyItems = [];
+
+    function loadHistory() {
+        var list = $("history-list");
+        list.innerHTML = '<p class="text-center text-sm text-on-surface-variant py-10">加载中…</p>';
+        fetch("/api/history").then(function (r) { return r.json(); }).then(function (d) {
+            historyItems = d.items || [];
+            renderHistoryFilter();
+            renderHistoryList();
+        }).catch(function (e) {
+            list.innerHTML = '<p class="text-center text-sm text-error py-10">加载失败：' + e + '</p>';
+        });
+    }
+
+    function renderHistoryFilter() {
+        var sel = $("history-filter");
+        var cur = sel.value;
+        var students = [];
+        historyItems.forEach(function (it) {
+            var s = (it.student || "").trim();
+            if (s && students.indexOf(s) < 0) students.push(s);
+        });
+        sel.innerHTML = '<option value="">全部报告</option>' +
+            students.map(function (s) {
+                return '<option value="' + escapeHtml(s) + '">👤 ' + escapeHtml(s) + '</option>';
+            }).join("") +
+            '<option value="__none__">未填写学生</option>';
+        sel.value = cur;
+        if (sel.value !== cur) sel.value = "";
+    }
+
+    function renderHistoryList() {
+        var f = $("history-filter").value;
+        var items = historyItems.filter(function (it) {
+            var s = (it.student || "").trim();
+            if (!f) return true;
+            if (f === "__none__") return !s;
+            return s === f;
+        });
+        var list = $("history-list");
+        $("history-empty").classList.toggle("hidden", items.length > 0);
+        list.innerHTML = "";
+        items.forEach(function (it) {
+            list.appendChild(historyRow(it));
+        });
+    }
+
+    function historyRow(it) {
+        var row = document.createElement("div");
+        row.className = "glass-input rounded-lg px-4 py-3 flex items-center gap-4 flex-wrap";
+
+        var info = document.createElement("div");
+        info.className = "flex-grow min-w-0";
+        var title = document.createElement("div");
+        title.className = "font-medium text-on-surface truncate";
+        title.textContent = it.filename;
+        var sub = document.createElement("div");
+        sub.className = "text-xs text-on-surface-variant mt-0.5 flex items-center gap-2 flex-wrap";
+        var bits = [];
+        if (it.student) bits.push("👤 " + it.student);
+        if (it.created) bits.push("生成于 " + it.created);
+        if (it.date) bits.push("报告日期 " + it.date);
+        if (it.has_mindmap) bits.push("含脑图");
+        bits.push((it.size / 1024).toFixed(0) + " KB");
+        sub.textContent = bits.join(" · ");
+        info.appendChild(title);
+        info.appendChild(sub);
+        row.appendChild(info);
+
+        function act(text, icon, cls, fn, titleAttr) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = cls + " rounded-full px-3.5 py-1.5 text-xs font-medium flex items-center gap-1";
+            b.title = titleAttr || text;
+            b.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">' + icon + '</span>' + text;
+            b.addEventListener("click", fn);
+            return b;
+        }
+        var btnGroup = document.createElement("div");
+        btnGroup.className = "flex items-center gap-2 flex-shrink-0";
+        btnGroup.appendChild(act("载入", "upload", "btn-glass text-primary", function () { openReport(it.job); }, "载入到编辑器和预览"));
+        btnGroup.appendChild(act("Word", "description", "btn-glass text-primary", function () {
+            window.location.href = "/api/file?job=" + encodeURIComponent(it.job) + "&fmt=docx&download=1";
+        }));
+        btnGroup.appendChild(act("PDF", "picture_as_pdf", "btn-glass text-primary", function () {
+            window.open("/api/file?job=" + encodeURIComponent(it.job) + "&fmt=pdf&download=1", "_blank");
+        }));
+        var del = act("删除", "delete", "btn-glass text-error", null);
+        del.addEventListener("click", function () {
+            if (!confirm("确定删除「" + it.filename + "」？此操作不可恢复。")) return;
+            fetch("/api/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ job: it.job })
+            }).then(function (r) { return r.json(); }).then(function (d) {
+                if (d.error) { alert(d.error); return; }
+                loadHistory();
+            });
+        });
+        btnGroup.appendChild(del);
+        row.appendChild(btnGroup);
+        return row;
+    }
+
+    // 载入历史报告到编辑器 + 预览
+    async function openReport(job) {
+        closeHistory();
+        try {
+            var resp = await fetch("/api/data?job=" + encodeURIComponent(job));
+            var result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || ("HTTP " + resp.status));
+            currentJob = result.job;
+            currentFilename = result.filename || "课堂报告";
+            var rs = $("result-section");
+            rs.classList.remove("hidden");
+            rs.classList.add("grid");
+            renderEditor(result.data);
+            $("parent-feedback").value = (result.data && result.data.parent_feedback) || "";
+            setPreviewLoading("正在渲染 Word 预览…");
+            $("export-bar").classList.add("hidden");
+            $("export-bar").classList.remove("flex");
+            rs.scrollIntoView({ behavior: "smooth", block: "start" });
+            await refreshPreview();
+            $("export-bar").classList.remove("hidden");
+            $("export-bar").classList.add("flex");
+        } catch (err) {
+            showError(err.message || String(err));
+        }
+    }
+
+    $("btn-history").addEventListener("click", openHistory);
+    $("btn-history-close").addEventListener("click", closeHistory);
+    $("history-filter").addEventListener("change", renderHistoryList);
+
+    // ================= 学生档案 / 学情趋势 =================
+    var currentStudent = null;
+    var studentSummaryText = "";
+    var studentReports = [];
+
+    function openStudents() {
+        $("students-modal").classList.remove("hidden");
+        showStudentList();
+        loadStudents();
+    }
+    function closeStudents() { $("students-modal").classList.add("hidden"); }
+    function showStudentList() {
+        currentStudent = null;
+        $("students-title").textContent = "学生档案";
+        $("student-detail").classList.add("hidden");
+        $("students-list").classList.remove("hidden");
+    }
+
+    function loadStudents() {
+        var box = $("students-list");
+        box.innerHTML = '<p class="text-center text-sm text-on-surface-variant py-10">加载中…</p>';
+        fetch("/api/students").then(function (r) { return r.json(); }).then(function (d) {
+            var items = d.items || [];
+            if (!items.length) {
+                box.innerHTML = '<div class="text-center text-sm text-on-surface-variant py-16">' +
+                    '<span class="material-symbols-outlined" style="font-size:48px;opacity:0.35;">person_off</span>' +
+                    '<p class="mt-2">还没有关联学生的报告</p>' +
+                    '<p class="mt-1 text-xs">生成报告时在「封面信息」里填写学生姓名，即自动归档到学生档案</p></div>';
+                return;
+            }
+            box.innerHTML = "";
+            var grid = document.createElement("div");
+            grid.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3";
+            items.forEach(function (st) {
+                var card = document.createElement("button");
+                card.type = "button";
+                card.className = "glass-input rounded-lg px-5 py-4 text-left hover:bg-white/70 transition-colors space-y-1";
+                card.innerHTML =
+                    '<div class="flex items-center gap-2">' +
+                    '<span class="material-symbols-outlined text-primary" style="font-size:22px;">person</span>' +
+                    '<span class="font-semibold text-on-surface text-base">' + escapeHtml(st.name) + '</span></div>' +
+                    '<div class="text-xs text-on-surface-variant">' + st.count + ' 份报告 · 最近 ' + (st.last_date || "—") + '</div>';
+                card.addEventListener("click", function () { openStudentDetail(st.name); });
+                grid.appendChild(card);
+            });
+            box.appendChild(grid);
+        }).catch(function (e) {
+            box.innerHTML = '<p class="text-center text-sm text-error py-10">加载失败：' + escapeHtml(String(e)) + '</p>';
+        });
+    }
+
+    async function openStudentDetail(name) {
+        currentStudent = name;
+        studentSummaryText = "";
+        $("students-title").textContent = name + " · 学情趋势";
+        $("students-list").classList.add("hidden");
+        $("student-detail").classList.remove("hidden");
+        $("student-stats").innerHTML = '<p class="text-sm text-on-surface-variant">加载中…</p>';
+        $("student-timeline").innerHTML = "";
+        $("student-mistakes").innerHTML = "";
+        $("student-summary-box").classList.add("hidden");
+        $("student-summary-box").innerHTML = "";
+        try {
+            var resp = await fetch("/api/student?name=" + encodeURIComponent(name));
+            var d = await resp.json();
+            if (!resp.ok) throw new Error(d.error || ("HTTP " + resp.status));
+            renderStudentDetail(d);
+        } catch (e) {
+            $("student-stats").innerHTML = '<p class="text-sm text-error">加载失败：' + escapeHtml(e.message || String(e)) + '</p>';
+        }
+    }
+
+    function ltText(it) { return ((it && it.lead) || "") + ((it && it.text) || ""); }
+
+    function renderStudentDetail(d) {
+        var reports = d.reports || [];
+        studentReports = reports;
+        var first = reports.length ? ((reports[0].data.meta || {}).date || "—") : "—";
+        var last = reports.length ? ((reports[reports.length - 1].data.meta || {}).date || "—") : "—";
+        var prosCount = 0, consCount = 0;
+        reports.forEach(function (r) {
+            var perf = r.data.performance || {};
+            prosCount += (perf.pros || []).length;
+            consCount += (perf.cons || []).length;
+        });
+        $("student-stats").innerHTML =
+            '<div class="flex items-center gap-4 flex-wrap text-sm text-on-surface-variant">' +
+            '<span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:17px;">description</span>' + reports.length + ' 份报告</span>' +
+            '<span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:17px;">date_range</span>' + escapeHtml(first) + (reports.length > 1 ? " ~ " + escapeHtml(last) : "") + '</span>' +
+            '<span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:17px;">thumb_up</span>累计 ' + prosCount + ' 条优点 · ' + consCount + ' 条待改进</span>' +
+            '</div>';
+
+        // 课程范围选择器（第 N 节 · 日期 · 标题），默认全选
+        var from = $("student-range-from"), to = $("student-range-to");
+        var opts = reports.map(function (r, i) {
+            var m = r.data.meta || {};
+            return '<option value="' + i + '">第 ' + (i + 1) + ' 节 · ' + escapeHtml(m.date || "") + ' ' + escapeHtml(m.title || "") + '</option>';
+        }).join("");
+        from.innerHTML = opts;
+        to.innerHTML = opts;
+        from.value = "0";
+        to.value = String(reports.length - 1);
+        syncGlass(from);
+        syncGlass(to);
+        updateRangeCount();
+
+        // 待改进汇总（以课堂表现为依据，不含误区）
+        var mh = '<div class="rounded-lg bg-white/60 border border-white/60 p-5">' +
+            '<div class="font-semibold text-primary text-sm mb-3 flex items-center gap-1.5">' +
+            '<span class="material-symbols-outlined" style="font-size:18px;">build</span>待改进汇总（全部课程，标注日期便于回溯）</div>' +
+            '<div class="space-y-1.5">';
+        if (!consCount) {
+            mh += '<p class="text-sm text-on-surface-variant">各次报告中均未记录待改进项。</p>';
+        }
+        reports.forEach(function (r) {
+            var dt = (r.data.meta || {}).date || "";
+            ((r.data.performance || {}).cons || []).forEach(function (it) {
+                mh += '<div class="text-sm text-on-surface leading-relaxed">· <span class="text-xs text-on-surface-variant">【' + escapeHtml(dt) + '】</span> ' + escapeHtml(ltText(it)) + '</div>';
+            });
+        });
+        $("student-mistakes").innerHTML = mh + '</div></div>';
+
+        // 逐课时间线（课堂表现 + 作业；误区不作为学情分析依据，不展示）
+        var tl = $("student-timeline");
+        reports.forEach(function (r, i) {
+            var m = r.data.meta || {};
+            var perf = r.data.performance || {};
+            var card = document.createElement("div");
+            card.className = "rounded-lg bg-white/60 border border-white/60 p-5 space-y-2";
+            var html = '<div class="flex items-baseline gap-2 flex-wrap">' +
+                '<span class="text-xs font-semibold text-primary">第 ' + (i + 1) + ' 节</span>' +
+                '<span class="font-semibold text-on-surface">' + escapeHtml(m.title || "") + '</span>' +
+                '<span class="text-xs text-on-surface-variant">' + escapeHtml(m.date || "") + (m.subject ? " · " + escapeHtml(m.subject) : "") + '</span></div>';
+            function block(label, icon, colorCls, items) {
+                if (!items || !items.length) return;
+                html += '<div class="text-xs font-semibold ' + colorCls + ' flex items-center gap-1 pt-1">' +
+                    '<span class="material-symbols-outlined" style="font-size:15px;">' + icon + '</span>' + label + '</div>';
+                items.forEach(function (it) {
+                    html += '<div class="text-sm text-on-surface-variant leading-relaxed pl-5">· ' + escapeHtml(ltText(it)) + '</div>';
+                });
+            }
+            block("优点", "thumb_up", "text-green-700", perf.pros);
+            block("待改进", "build", "text-amber-700", perf.cons);
+            block("作业", "assignment", "text-primary", r.data.homework);
+            card.innerHTML = html;
+            tl.appendChild(card);
+        });
+    }
+
+    // 当前选中的课程范围 → job 列表（无效范围返回 null）
+    function selectedRangeJobs() {
+        var a = parseInt($("student-range-from").value, 10);
+        var b = parseInt($("student-range-to").value, 10);
+        if (isNaN(a) || isNaN(b) || a > b) return null;
+        return studentReports.slice(a, b + 1).map(function (r) { return r.job; });
+    }
+
+    function updateRangeCount() {
+        var jobs = selectedRangeJobs();
+        $("student-range-count").textContent = jobs ? ("（共 " + jobs.length + " 节）") : "（范围无效：起点需早于终点）";
+    }
+
+    function renderStudentSummary() {
+        var box = $("student-summary-box");
+        box.classList.remove("hidden");
+        var html = '<div class="rounded-lg bg-white/60 border border-white/60 p-5 space-y-1">' +
+            '<div class="font-semibold text-primary text-sm mb-2 flex items-center gap-1.5">' +
+            '<span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span>AI 学情总结</div>';
+        studentSummaryText.split("\n").forEach(function (line) {
+            line = line.trim();
+            if (!line) return;
+            if (/^[・\-•]/.test(line)) {
+                html += '<div class="text-sm text-on-surface-variant leading-relaxed pl-2">' + escapeHtml(line) + '</div>';
+            } else {
+                html += '<div class="font-semibold text-on-surface text-sm pt-2">' + escapeHtml(line) + '</div>';
+            }
+        });
+        box.innerHTML = html + '</div>';
+    }
+
+    $("btn-student-summary").addEventListener("click", async function () {
+        if (!currentStudent) return;
+        var jobs = selectedRangeJobs();
+        if (!jobs) { alert("课程范围无效：起点需早于或等于终点。"); return; }
+        var btn = $("btn-student-summary");
+        btn.disabled = true;
+        $("btn-student-summary-text").textContent = "生成中…（约 10~30 秒）";
+        var box = $("student-summary-box");
+        box.classList.remove("hidden");
+        box.innerHTML = '<div class="rounded-lg bg-white/60 border border-white/60 p-5 text-sm text-on-surface-variant flex items-center gap-2">' +
+            '<span class="spinner spinner-dark inline-block"></span>AI 正在通读所选范围内的 ' + jobs.length + ' 份报告…</div>';
+        var sel = currentModelSel();
+        try {
+            var resp = await fetch("/api/student_summary", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: currentStudent, provider: sel.provider, model: sel.model, jobs: jobs })
+            });
+            var d = await resp.json();
+            if (!resp.ok) throw new Error(d.error || ("HTTP " + resp.status));
+            studentSummaryText = d.summary || "";
+            renderStudentSummary();
+        } catch (e) {
+            box.innerHTML = '<div class="rounded-lg bg-red-50/60 border border-red-200/60 p-4 text-sm text-error">' + escapeHtml(e.message || String(e)) + '</div>';
+        } finally {
+            btn.disabled = false;
+            $("btn-student-summary-text").textContent = "生成 AI 学情总结";
+        }
+    });
+
+    $("btn-student-pdf").addEventListener("click", async function () {
+        if (!currentStudent) return;
+        var jobs = selectedRangeJobs();
+        if (!jobs) { alert("课程范围无效：起点需早于或等于终点。"); return; }
+        var btn = $("btn-student-pdf");
+        btn.disabled = true;
+        $("btn-student-pdf-text").textContent = "生成中（约 10~30 秒）…";
+        try {
+            var resp = await fetch("/api/student_pdf?name=" + encodeURIComponent(currentStudent) +
+                "&jobs=" + encodeURIComponent(jobs.join(",")));
+            if (!resp.ok) {
+                var d = await resp.json().catch(function () { return {}; });
+                throw new Error(d.error || ("HTTP " + resp.status));
+            }
+            var blob = await resp.blob();
+            var a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = currentStudent + "-学情趋势.pdf";
+            a.click();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+        } catch (e) {
+            alert("导出失败：" + (e.message || e));
+        } finally {
+            btn.disabled = false;
+            $("btn-student-pdf-text").textContent = "导出学情 PDF";
+        }
+    });
+
+    $("btn-students").addEventListener("click", openStudents);
+    $("btn-students-close").addEventListener("click", closeStudents);
+    $("btn-student-back").addEventListener("click", showStudentList);
+    $("student-range-from").addEventListener("change", updateRangeCount);
+    $("student-range-to").addEventListener("change", updateRangeCount);
+    $("students-modal").addEventListener("click", function (e) {
+        if (e.target === this) closeStudents();
+    });
+    $("history-modal").addEventListener("click", function (e) {
+        if (e.target === $("history-modal")) closeHistory();
+    });
+
+    $("btn-settings").addEventListener("click", openSettings);
+    $("btn-settings-2").addEventListener("click", openSettings);
+    $("btn-settings-close").addEventListener("click", closeSettings);
+    $("btn-settings-save").addEventListener("click", saveSettings);
+    // ---- 水印设置 ----
+    $("btn-brand").addEventListener("click", openBrand);
+    $("btn-brand-close").addEventListener("click", closeBrand);
+    $("btn-brand-save").addEventListener("click", saveBrand);
+    $("btn-brand-preview").addEventListener("click", previewBrand);
+    $("brand-modal").addEventListener("click", function (e) {
+        if (e.target === $("brand-modal")) closeBrand();
+    });
+    // ---- 批量生成 ----
+    $("btn-batch").addEventListener("click", openBatch);
+    $("btn-batch-close").addEventListener("click", closeBatch);
+    $("btn-batch-add").addEventListener("click", function () { addBatchEntryState(); renderBatchEntries(); });
+    $("btn-batch-start").addEventListener("click", startBatch);
+    $("btn-batch-zip").addEventListener("click", zipBatch);
+    $("batch-modal").addEventListener("click", function (e) {
+        if (e.target === $("batch-modal")) closeBatch();
+    });
+    $("settings-modal").addEventListener("click", function (e) {
+        if (e.target === $("settings-modal")) closeSettings();
+    });
+
+    // ================= 脑图 =================
+    var dropzone = $("dropzone"), fileInput = $("mindmap-file");
+    dropzone.addEventListener("click", function (e) {
+        if (e.target.id !== "mindmap-remove") fileInput.click();
+    });
+    dropzone.addEventListener("dragover", function (e) { e.preventDefault(); });
+    dropzone.addEventListener("drop", function (e) {
+        e.preventDefault();
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) readImage(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", function () {
+        if (fileInput.files[0]) readImage(fileInput.files[0]);
+        fileInput.value = "";
+    });
+    document.addEventListener("paste", function (e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image") === 0) {
+                readImage(items[i].getAsFile());
+                e.preventDefault();
+                return;
+            }
+        }
+    });
+    $("mindmap-remove").addEventListener("click", function (e) {
+        e.stopPropagation();
+        mindmapDataUrl = null;
+        $("mindmap-preview").classList.add("hidden");
+        $("mindmap-empty").classList.remove("hidden");
+    });
+    function readImage(file) {
+        if (!file || !file.type || file.type.indexOf("image") !== 0) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+            mindmapDataUrl = reader.result;
+            $("mindmap-img").src = mindmapDataUrl;
+            $("mindmap-empty").classList.add("hidden");
+            var p = $("mindmap-preview");
+            p.classList.remove("hidden");
+            p.classList.add("flex");
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ================= 状态 =================
+    function setStatus(text) {
+        var s = $("status");
+        if (!text) { s.classList.add("hidden"); s.classList.remove("flex"); return; }
+        $("status-text").textContent = text;
+        s.classList.remove("hidden"); s.classList.add("flex");
+    }
+    function showError(msg) {
+        var box = $("error-box");
+        if (!msg) { box.classList.add("hidden"); return; }
+        box.textContent = msg;
+        box.classList.remove("hidden");
+    }
+    // 预览模式：docx（docx-preview 渲染 Word）/ pdf（iframe 内嵌 PDF）
+    var previewMode = "docx";
+    var pdfObjectUrl = null;  // 当前 job 的 PDF blob URL；内容变更后作废
+    function activePreviewEl() { return previewMode === "pdf" ? $("preview-pdf") : $("preview-doc"); }
+    function setPreviewLoading(text, useCells) {
+        $("preview-doc").classList.add("hidden");
+        $("preview-pdf").classList.add("hidden");
+        if (text === null) {
+            $("preview-loading").classList.add("hidden");
+            $("preview-loading").classList.remove("flex");
+            activePreviewEl().classList.remove("hidden");
+            return;
+        }
+        $("preview-loading-text").textContent = text;
+        $("preview-spinner").classList.toggle("hidden", !!useCells);
+        $("pdf-loader").classList.toggle("hidden", !useCells);
+        $("preview-loading").classList.remove("hidden");
+        $("preview-loading").classList.add("flex");
+    }
+
+    // ================= 编辑器（左栏） =================
+    // 用 data-path 标注每个可编辑字段，collectEditor() 收集回 JSON
+    function el(tag, cls, path, value, placeholder) {
+        var n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (path) n.setAttribute("data-path", path);
+        if (value !== undefined) n.value = value;
+        if (placeholder) n.placeholder = placeholder;
+        return n;
+    }
+    function delBtn(onclick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "edit-del";
+        b.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">close</span>';
+        b.addEventListener("click", onclick);
+        return b;
+    }
+    function addBtn(text, onclick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "edit-add";
+        b.textContent = text;
+        b.addEventListener("click", onclick);
+        return b;
+    }
+    function sectionBox(title) {
+        var box = document.createElement("div");
+        box.className = "edit-section";
+        var head = document.createElement("div");
+        head.className = "flex items-center justify-between mb-2";
+        var t = document.createElement("span");
+        t.className = "text-sm font-semibold text-primary";
+        t.textContent = title;
+        head.appendChild(t);
+        box.appendChild(head);
+        return box;
+    }
+    // 「标签 + 内容」条目列表板块（content/gains/homework/mistakes/suggestions/pros/cons）
+    function renderLeadTextList(box, path, items) {
+        items.forEach(function (it, i) {
+            var row = document.createElement("div");
+            row.className = "edit-item-row";
+            row.appendChild(el("input", "glass-input rounded-lg px-2 py-1.5 edit-lead", path + "." + i + ".lead", it.lead, "标签："));
+            row.appendChild(el("input", "glass-input rounded-lg px-2 py-1.5 flex-grow", path + "." + i + ".text", it.text, "内容"));
+            row.appendChild(delBtn(function () {
+                var data = collectEditor();
+                getPath(data, path).splice(i, 1);
+                renderEditor(data);
+            }));
+            box.appendChild(row);
+        });
+        box.appendChild(addBtn("＋ 添加条目", function () {
+            var data = collectEditor();
+            getPath(data, path).push({ lead: "", text: "" });
+            renderEditor(data);
+        }));
+    }
+    function getPath(obj, path) {
+        var parts = path.split(".");
+        var cur = obj;
+        for (var i = 0; i < parts.length; i++) {
+            var k = isNaN(Number(parts[i])) ? parts[i] : Number(parts[i]);
+            cur = cur[k];
+        }
+        return cur;
+    }
+    function setPath(obj, path, value) {
+        var parts = path.split(".");
+        var cur = obj;
+        for (var i = 0; i < parts.length - 1; i++) {
+            var k = isNaN(Number(parts[i])) ? parts[i] : Number(parts[i]);
+            if (cur[k] === undefined) cur[k] = isNaN(Number(parts[i + 1])) ? {} : [];
+            cur = cur[k];
+        }
+        var last = parts[parts.length - 1];
+        cur[isNaN(Number(last)) ? last : Number(last)] = value;
+    }
+
+    var META_FIELDS = [["title", "课程标题"], ["subtitle", "副标题"], ["subject", "学科"],
+                       ["student", "学生姓名"],
+                       ["form", "授课形式"], ["content", "主讲内容"], ["date", "报告日期"]];
+
+    function renderEditor(data) {
+        var ed = $("editor");
+        ed.innerHTML = "";
+
+        // 封面
+        var cover = sectionBox("🎓 封面");
+        META_FIELDS.forEach(function (f) {
+            var row = document.createElement("div");
+            row.className = "edit-item-row";
+            var lab = document.createElement("span");
+            lab.className = "text-xs text-on-surface-variant edit-lead";
+            lab.textContent = f[1];
+            row.appendChild(lab);
+            row.appendChild(el("input", "glass-input rounded-lg px-2 py-1.5 flex-grow", "meta." + f[0], data.meta[f[0]] || "", f[1]));
+            cover.appendChild(row);
+        });
+        ed.appendChild(cover);
+
+        // 课堂内容
+        var c1 = sectionBox("📚 一、课堂内容");
+        var ml = el("textarea", "glass-input rounded-lg px-2 py-1.5 w-full mb-2", "mainline", data.mainline || "", "主线说明（一句话）");
+        ml.rows = 2;
+        c1.appendChild(ml);
+        renderLeadTextList(c1, "content", data.content || []);
+        ed.appendChild(c1);
+
+        // 课堂表现
+        var c2 = sectionBox("🌟 二、课堂表现");
+        var p1 = document.createElement("div");
+        p1.className = "text-xs font-medium text-on-surface-variant mb-1";
+        p1.textContent = "👍 优点";
+        c2.appendChild(p1);
+        renderLeadTextList(c2, "performance.pros", (data.performance || {}).pros || []);
+        var p2 = document.createElement("div");
+        p2.className = "text-xs font-medium text-on-surface-variant mb-1 mt-2";
+        p2.textContent = "🔧 待改进";
+        c2.appendChild(p2);
+        renderLeadTextList(c2, "performance.cons", (data.performance || {}).cons || []);
+        ed.appendChild(c2);
+
+        // 课程纪要
+        var c3 = sectionBox("📝 三、课程纪要");
+        (data.minutes || []).forEach(function (sub, i) {
+            var blk = document.createElement("div");
+            blk.className = "edit-minutes-block";
+            var row = document.createElement("div");
+            row.className = "edit-item-row";
+            row.appendChild(el("input", "glass-input rounded-lg px-2 py-1.5 flex-grow font-medium", "minutes." + i + ".title", sub.title, "emoji + 小节标题"));
+            row.appendChild(delBtn(function () {
+                var d2 = collectEditor();
+                d2.minutes.splice(i, 1);
+                renderEditor(d2);
+            }));
+            blk.appendChild(row);
+            var ta = el("textarea", "glass-input rounded-lg px-2 py-1.5 w-full", "minutes." + i + ".points", (sub.points || []).join("\n"), "纪要要点，每行一条");
+            ta.rows = Math.max(3, (sub.points || []).length + 1);
+            blk.appendChild(ta);
+            c3.appendChild(blk);
+        });
+        c3.appendChild(addBtn("＋ 添加小节", function () {
+            var d2 = collectEditor();
+            d2.minutes.push({ title: "🔹 新小节", points: [] });
+            renderEditor(d2);
+        }));
+        ed.appendChild(c3);
+
+        // 其余四个板块
+        [["🏆 四、课程收获", "gains"], ["📋 五、课堂作业", "homework"],
+         ["⚠️ 六、易错分析", "mistakes"], ["💡 七、学习建议", "suggestions"]].forEach(function (s) {
+            var box = sectionBox(s[0]);
+            renderLeadTextList(box, s[1], data[s[1]] || []);
+            ed.appendChild(box);
+        });
+    }
+
+    function collectEditor() {
+        var data = { meta: {} };
+        document.querySelectorAll("#editor [data-path]").forEach(function (n) {
+            var path = n.getAttribute("data-path");
+            var val = n.value;
+            if (/^minutes\.\d+\.points$/.test(path)) {
+                val = val.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+            setPath(data, path, val);
+        });
+        ["content", "gains", "homework", "mistakes", "suggestions", "minutes"].forEach(function (k) {
+            if (!Array.isArray(data[k])) data[k] = [];
+        });
+        if (!data.performance) data.performance = { pros: [], cons: [] };
+        if (!Array.isArray(data.performance.pros)) data.performance.pros = [];
+        if (!Array.isArray(data.performance.cons)) data.performance.cons = [];
+        var pfBox = $("parent-feedback");
+        if (pfBox && pfBox.value.trim()) data.parent_feedback = pfBox.value;
+        return data;
+    }
+
+    // ================= 预览 =================
+    function fitPreviewToWidth() {
+        // docx-preview 按 A4 真实宽度渲染；用 CSS zoom 等比缩放到栏宽：
+        // zoom 按最终尺寸排版，文字保持清晰；且参与布局，不会溢出裁剪
+        var container = $("preview-doc");
+        if (!container || container.classList.contains("hidden")) return;
+        var cw = container.clientWidth - 8;
+        container.querySelectorAll("section.docx").forEach(function (sec) {
+            sec.style.zoom = "";
+            var w = sec.offsetWidth;
+            if (!w) return;
+            var scale = Math.min(1, cw / w);
+            sec.style.zoom = scale < 1 ? String(scale) : "";
+        });
+    }
+    window.addEventListener("resize", fitPreviewToWidth);
+
+    function invalidatePdf() {
+        if (pdfObjectUrl) { URL.revokeObjectURL(pdfObjectUrl); pdfObjectUrl = null; }
+        $("preview-pdf").removeAttribute("src");
+    }
+    function setPreviewMode(mode) {
+        previewMode = mode;
+        $("btn-view-docx").classList.toggle("active", mode === "docx");
+        $("btn-view-pdf").classList.toggle("active", mode === "pdf");
+        $("preview-doc").classList.toggle("hidden", mode !== "docx");
+        $("preview-pdf").classList.toggle("hidden", mode !== "pdf");
+    }
+    // 触发服务端懒转换并返回 PDF 的 blob URL（同一次生成内复用，不重复转换）
+    async function fetchPdfUrl() {
+        if (pdfObjectUrl) return pdfObjectUrl;
+        var resp = await fetch("/api/file?job=" + encodeURIComponent(currentJob) + "&fmt=pdf&t=" + Date.now());
+        var ct = resp.headers.get("Content-Type") || "";
+        if (!resp.ok || ct.indexOf("application/pdf") !== 0) {
+            var msg = "PDF 转换失败";
+            try { msg = (await resp.json()).error || msg; } catch (e) {}
+            throw new Error(msg);
+        }
+        var blob = await resp.blob();
+        pdfObjectUrl = URL.createObjectURL(blob);
+        return pdfObjectUrl;
+    }
+    async function refreshPreview() {
+        invalidatePdf();          // 内容变了，旧 PDF 已作废（服务端同步删除了 pdf 文件）
+        setPreviewMode("docx");   // 重新排版后回到 Word 视图
+        var docxResp = await fetch("/api/file?job=" + encodeURIComponent(currentJob) + "&fmt=docx&t=" + Date.now());
+        if (!docxResp.ok) throw new Error("Word 文件获取失败");
+        var blob = await docxResp.blob();
+        var container = $("preview-doc");
+        container.innerHTML = "";
+        await docx.renderAsync(blob, container, null, {
+            className: "docx", inWrapper: true, ignoreWidth: false, ignoreHeight: false
+        });
+        setPreviewLoading(null);
+        fitPreviewToWidth();
+        // 字体/图片加载后高度可能变化，延迟再适配一次
+        setTimeout(fitPreviewToWidth, 600);
+    }
+
+    // ================= 生成 =================
+    $("btn-generate").addEventListener("click", async function () {
+        var overview = $("course-overview").value.trim();
+        var notes = $("course-notes").value.trim();
+        showError(null);
+        if (!overview || !notes) {
+            showError("请填写「课堂速览」和「课堂纪要」后再生成。");
+            return;
+        }
+        var student = $("meta-student").value.trim();
+        if (!student) {
+            $("meta-student").focus();
+            showError("请填写「学生姓名」（必填，用于学生档案归档）。");
+            return;
+        }
+        var selVal = $("model-select").value || "";
+        var sep = selVal.indexOf("|");
+        var providerName = sep >= 0 ? selVal.slice(0, sep) : selVal;
+        var modelName = sep >= 0 ? selVal.slice(sep + 1) : "";
+
+        var btn = $("btn-generate");
+        btn.disabled = true;
+        $("btn-generate-text").textContent = "生成中…";
+
+        var rs = $("result-section");
+        rs.classList.remove("hidden");
+        rs.classList.add("grid");
+        rs.classList.add("fade-in");
+        $("export-bar").classList.add("hidden");
+        $("export-bar").classList.remove("flex");
+        setPreviewLoading("AI 正在归纳课程内容（约 20~60 秒）…");
+        rs.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        try {
+            var resp = await fetch("/api/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    overview: overview,
+                    notes: notes,
+                    mindmap: mindmapDataUrl,
+                    provider: providerName,
+                    model: modelName,
+                    student: student,
+                    meta: {
+                        title: $("meta-title").value.trim(),
+                        subject: $("meta-subject").value.trim(),
+                        form: $("meta-form").value.trim(),
+                        date: $("meta-date").value.trim()
+                    }
+                })
+            });
+            var result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || ("HTTP " + resp.status));
+            currentJob = result.job;
+            currentFilename = result.filename || "课堂报告";
+
+            renderEditor(result.data);
+            $("parent-feedback").value = (result.data && result.data.parent_feedback) || "";
+            setPreviewLoading("正在渲染 Word 预览…");
+            await refreshPreview();
+            $("export-bar").classList.remove("hidden");
+            $("export-bar").classList.add("flex");
+        } catch (err) {
+            setPreviewLoading("生成失败");
+            showError(err.message || String(err));
+        } finally {
+            btn.disabled = false;
+            $("btn-generate-text").textContent = "生成课堂反馈";
+        }
+    });
+
+    // ================= 应用修改 =================
+    $("btn-apply").addEventListener("click", async function () {
+        if (!currentJob) return;
+        var btn = $("btn-apply");
+        btn.disabled = true;
+        $("btn-apply-text").textContent = "应用修改中…";
+        setPreviewLoading("正在按修改后的内容重新排版…");
+        showError(null);
+        try {
+            var data = collectEditor();
+            var resp = await fetch("/api/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ job: currentJob, data: data })
+            });
+            var result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || ("HTTP " + resp.status));
+            currentFilename = result.filename || currentFilename;
+            await refreshPreview();
+        } catch (err) {
+            setPreviewLoading(null);
+            showError(err.message || String(err));
+        } finally {
+            btn.disabled = false;
+            $("btn-apply-text").textContent = "应用修改并刷新预览";
+        }
+    });
+
+    // ================= 家长反馈：复制 / 重新生成 =================
+    $("btn-pf-copy").addEventListener("click", async function () {
+        var ta = $("parent-feedback");
+        var text = ta.value.trim();
+        if (!text) { showError("家长反馈为空，请先生成或填写内容。"); ta.focus(); return; }
+        var ok = false;
+        try {
+            if (navigator.clipboard && window.isSecureContext !== false) {
+                await navigator.clipboard.writeText(text);
+                ok = true;
+            }
+        } catch (e) { /* 回退 execCommand */ }
+        if (!ok) {
+            ta.focus();
+            ta.select();
+            try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+            window.getSelection().removeAllRanges();
+        }
+        if (ok) {
+            $("btn-pf-copy-text").textContent = "已复制 ✓";
+            $("btn-pf-copy-icon").textContent = "check";
+            setTimeout(function () {
+                $("btn-pf-copy-text").textContent = "一键复制";
+                $("btn-pf-copy-icon").textContent = "content_copy";
+            }, 1500);
+        } else {
+            showError("复制失败，请手动全选复制。");
+        }
+    });
+
+    $("btn-pf-regen").addEventListener("click", async function () {
+        if (!currentJob) return;
+        var btn = $("btn-pf-regen");
+        btn.disabled = true;
+        $("btn-pf-regen-text").textContent = "生成中…";
+        showError(null);
+        try {
+            var selVal = $("model-select").value || "";
+            var sep = selVal.indexOf("|");
+            var resp = await fetch("/api/parent-feedback", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    job: currentJob,
+                    provider: sep >= 0 ? selVal.slice(0, sep) : selVal,
+                    model: sep >= 0 ? selVal.slice(sep + 1) : ""
+                })
+            });
+            var result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || ("HTTP " + resp.status));
+            $("parent-feedback").value = result.parent_feedback || "";
+        } catch (err) {
+            showError(err.message || String(err));
+        } finally {
+            btn.disabled = false;
+            $("btn-pf-regen-text").textContent = "AI 重新生成";
+        }
+    });
+
+    // ================= 导出 =================
+    $("btn-docx").addEventListener("click", function () {
+        if (!currentJob) return;
+        window.location.href = "/api/file?job=" + encodeURIComponent(currentJob) + "&fmt=docx&download=1";
+    });
+    $("btn-pdf").addEventListener("click", async function () {
+        if (!currentJob) return;
+        var btn = $("btn-pdf");
+        btn.disabled = true;
+        $("btn-pdf-text").textContent = "转换中…";
+        setStatus("Word COM 正在转换 PDF（首次约 10~30 秒）…");
+        try {
+            var url = await fetchPdfUrl();  // 与 PDF 预览共用同一份转换结果
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = currentFilename + ".pdf";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            showError(err.message || String(err));
+        } finally {
+            btn.disabled = false;
+            $("btn-pdf-text").textContent = "导出 PDF";
+            setStatus(null);
+        }
+    });
+
+    // ================= 预览切换 Word / PDF =================
+    $("btn-view-docx").addEventListener("click", function () {
+        if (!currentJob || previewMode === "docx") return;
+        setPreviewMode("docx");
+        fitPreviewToWidth();
+    });
+    $("btn-view-pdf").addEventListener("click", async function () {
+        if (!currentJob || previewMode === "pdf") return;
+        setPreviewMode("pdf");
+        setPreviewLoading("正在准备 PDF 预览（首次转换约 10~30 秒）…", true);
+        showError(null);
+        try {
+            $("preview-pdf").src = await fetchPdfUrl();
+            setPreviewLoading(null);
+        } catch (err) {
+            setPreviewMode("docx");
+            setPreviewLoading(null);
+            showError(err.message || String(err));
+        }
+    });
+
+    // ================= 直接打印（打印 PDF 版） =================
+    function printPdf(url) {
+        return new Promise(function (resolve) {
+            // 屏外 iframe 加载 PDF 后调其 print()；display:none 会让 PDF 查看器不渲染，故用屏外定位
+            var f = document.createElement("iframe");
+            f.style.cssText = "position:fixed;right:100%;bottom:100%;width:800px;height:600px;border:0;";
+            var settled = false;
+            var timer = setTimeout(function () {   // 加载超时兜底：新标签页打开手动打印
+                if (settled) return;
+                settled = true;
+                f.remove();
+                window.open(url, "_blank");
+                resolve();
+            }, 20000);
+            f.onload = function () {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try {
+                    f.contentWindow.focus();
+                    f.contentWindow.print();
+                } catch (e) {
+                    window.open(url, "_blank");
+                }
+                setTimeout(function () { f.remove(); }, 60000);  // 留时间给打印对话框，之后清理
+                resolve();
+            };
+            f.src = url;
+            document.body.appendChild(f);
+        });
+    }
+    $("btn-print").addEventListener("click", async function () {
+        if (!currentJob) return;
+        var btn = $("btn-print");
+        btn.disabled = true;
+        $("btn-print-text").textContent = "准备中…";
+        setStatus("正在准备打印 PDF（首次转换约 10~30 秒）…");
+        showError(null);
+        try {
+            await printPdf(await fetchPdfUrl());
+        } catch (err) {
+            showError(err.message || String(err));
+        } finally {
+            btn.disabled = false;
+            $("btn-print-text").textContent = "直接打印";
+            setStatus(null);
+        }
+    });
+
+    enhanceSelect($("model-select"), { placeholder: "选择模型" });
+    enhanceSelect($("student-range-from"), { maxWidth: "210px" });
+    enhanceSelect($("student-range-to"), { maxWidth: "210px" });
+    loadProviders();
+
+    // 开发自测钩子：?autotest=1 自动填入样例并点击生成；?autotest=history 打开历史报告
+    if (/[?&]autotest=1/.test(location.search)) {
+        $("course-overview").value = "00:00-10:00 声音的产生：音叉实验，振动发声\n10:00-20:00 声音的传播：需要介质，真空不能传声\n20:00-30:00 声速与回声：15℃空气中340m/s，s=vt/2\n30:00-40:00 例题演练与作业布置";
+        $("course-notes").value = "今天讲了声音的产生，音叉靠近乒乓球被弹开说明振动发声，学生互动积极。声音传播需要介质，真空不能传声。15℃空气中声速340m/s，固体中最快。回声测距 s=vt/2，学生一开始忘除以2后来改对了。计算题要写公式带单位。作业：《物理同步练习》第一章第1节1-12题。";
+        setTimeout(function () { $("btn-generate").click(); }, 800);
+    } else if (/[?&]autotest=history/.test(location.search)) {
+        setTimeout(openHistory, 600);
+    } else if (/[?&]autotest=students/.test(location.search)) {
+        // 打开学生档案弹窗；可加 &name=<姓名> 直接进该学生的趋势视图；&select=1 展开课程范围下拉
+        var nm = location.search.match(/[?&]name=([^&]+)/);
+        var openSel = /[?&]select=1/.test(location.search);
+        setTimeout(function () {
+            openStudents();
+            if (nm) openStudentDetail(decodeURIComponent(nm[1])).then(function () {
+                if (openSel) setTimeout(function () {
+                    var g = $("student-range-from")._glass;
+                    if (g) g.sync(), document.querySelectorAll(".glass-select-trigger")[1].click();
+                }, 800);
+            });
+        }, 600);
+    } else if (/[?&]autotest=select/.test(location.search)) {
+        // 展开模型快切的玻璃下拉弹层（验证选项样式）——立即打开，选项随供应商加载填入
+        var trigs = document.querySelectorAll(".glass-select-trigger");
+        if (trigs.length) trigs[0].click();
+    } else if (/[?&]autotest=load/.test(location.search)) {
+        // 可用 &job=<id> 指定载入某个历史报告，否则载入最新一条
+        var jm = location.search.match(/[?&]job=([0-9a-zA-Z-]+)/);
+        setTimeout(function () {
+            if (jm) { openReport(jm[1]); return; }
+            fetch("/api/history").then(function (r) { return r.json(); }).then(function (d) {
+                if (d.items && d.items.length) openReport(d.items[0].job);
+            });
+        }, 600);
+    } else if (/[?&]autotest=pdfview/.test(location.search)) {
+        // 载入最新历史报告后自动切到 PDF 预览（验证内嵌 PDF 渲染）
+        setTimeout(function () {
+            fetch("/api/history").then(function (r) { return r.json(); }).then(function (d) {
+                if (!d.items || !d.items.length) return;
+                openReport(d.items[0].job).then(function () {
+                    setTimeout(function () { $("btn-view-pdf").click(); }, 1000);
+                });
+            });
+        }, 600);
+    } else if (/[?&]autotest=brandwm/.test(location.search)) {
+        setTimeout(function () {
+            openBrand();
+            setTimeout(function () {
+                brandState.watermark.enabled = true;
+                renderBrandWatermark();
+                previewBrand();
+                setTimeout(function () {
+                    var secs = $("brand-preview-doc").querySelectorAll("section.docx");
+                    if (secs[1]) secs[1].scrollIntoView();
+                }, 5000);
+            }, 800);
+        }, 600);
+    } else if (/[?&]autotest=brand/.test(location.search)) {
+        setTimeout(function () {
+            openBrand();
+            setTimeout(previewBrand, 800);
+        }, 600);
+    } else if (/[?&]autotest=batch/.test(location.search)) {
+        setTimeout(function () {
+            openBatch();
+            batchEntries[0].overview = "00:00-10:00 声音的产生\n10:00-20:00 声音的传播";
+            batchEntries[0].notes = "今天讲了声音的产生与传播，学生互动积极。";
+            batchEntries[1].overview = "00:00-10:00 声速\n10:00-20:00 回声测距";
+            batchEntries[1].notes = "讲了声速和回声测距 s=vt/2，计算题要带单位。";
+            renderBatchEntries();
+        }, 600);
+    } else if (/[?&]autotest=settings/.test(location.search)) {
+        // 打开设置弹窗并填入样例值（验证浮动标签浮起状态）
+        setTimeout(function () {
+            openSettings();
+            setTimeout(function () {
+                $("set-api-key").value = "sk-sample-key";
+                $("set-model").value = "deepseek-v4-pro";
+            }, 400);
+        }, 600);
+    }
+})();
+</script>
+</body>
+</html>

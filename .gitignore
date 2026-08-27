@@ -1,0 +1,15 @@
+# 依赖与缓存
+__pycache__/
+*.pyc
+
+# 早期样例归档（本地保留，不上传）
+_archive/
+
+# 本地配置（含 API Key，绝不上传）
+webapp/config.json
+
+# 机构品牌素材（Logo、页眉页脚图片等本地上传文件）
+webapp/brand/
+
+# 运行数据（报告任务、学生档案、打包 zip、转换临时脚本）
+webapp/runtime/

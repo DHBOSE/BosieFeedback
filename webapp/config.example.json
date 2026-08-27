@@ -1,0 +1,51 @@
+{
+  "current": "deepseek",
+  "providers": {
+    "deepseek": {
+      "label": "DeepSeek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "",
+      "model": "deepseek-v4-pro",
+      "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+      "extra_body": { "thinking": { "type": "disabled" } }
+    },
+    "kimi": {
+      "label": "Kimi（Moonshot）",
+      "base_url": "https://api.moonshot.cn/v1",
+      "api_key": "",
+      "model": "kimi-k2-0905-preview",
+      "models": ["kimi-k2-0905-preview", "kimi-k2-turbo-preview", "moonshot-v1-32k"]
+    },
+    "bailian": {
+      "label": "阿里云百炼",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "",
+      "model": "qwen-plus",
+      "models": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen3-235b-a22b"]
+    },
+    "custom": {
+      "label": "自定义（OpenAI 兼容）",
+      "base_url": "",
+      "api_key": "",
+      "model": "",
+      "models": []
+    }
+  },
+  "brand": {
+    "org_name": "",
+    "contact": "",
+    "cover": { "enabled": false, "height_cm": 2.2 },
+    "header": { "enabled": false, "height_cm": 1.4 },
+    "footer": { "enabled": false, "height_cm": 1.2 },
+    "watermark": {
+      "enabled": false,
+      "type": "text",
+      "text": "",
+      "size_pct": 60,
+      "opacity_pct": 15,
+      "angle": -45,
+      "font": "msyh",
+      "color": "216873"
+    }
+  }
+}
