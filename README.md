@@ -21,11 +21,19 @@
 | 🔌 多模型 | DeepSeek / Kimi / 百炼 / 自定义端点，顶栏模型快切，Key 仅存本地且掩码显示 |
 | 🕘 历史报告 | 自动保存每次生成，随时载入重新编辑 / 导出 / 删除 |
 
-## 🖥 运行环境
+## 🖥 本机环境要求（正常使用前请确认）
 
-- **Windows**（PDF 转换优先走本机 Word COM，无 Word 时回退 LibreOffice）
-- Python 3.9+，依赖仅两个：`python-docx`、`Pillow`
-- Microsoft Edge（无头渲染 Mermaid 脑图，系统自带即可）
+| 需要的组件 | 必需性 | 用途 | 没有它会怎样 |
+|------------|--------|------|--------------|
+| **Windows 10 / 11** | ✅ 必需 | 启动器（VBS）、PDF 转换、中文字体均依赖 Windows | 无法直接运行 |
+| **Python 3.9+** | ✅ 必需 | 运行后端服务 | 无法启动 |
+| **python-docx、Pillow** | ✅ 必需 | `pip install python-docx Pillow`；生成 Word、烘焙水印图片 | 无法启动 |
+| **LLM API Key**（DeepSeek / Kimi / 百炼 / 任意 OpenAI 兼容端点） | ✅ 必需 | AI 归纳报告、脑图、家长反馈（需联网调用对应 API） | 无法生成内容 |
+| **Microsoft Edge** | ⚠️ 建议 | 无头渲染 AI 脑图（Win10/11 系统自带，无需另装） | 报告正常生成，但脑图位置留空白占位 |
+| **Microsoft Word** 或 **LibreOffice** | ⚠️ 建议 | docx → PDF 转换（优先 Word，保真度高；LibreOffice 兜底） | Word 报告正常导出，仅无法转 PDF |
+| **常见中文字体**（微软雅黑/宋体/仿宋/楷体等，`C:\Windows\Fonts` 系统自带） | ⚪ 可选 | 正文文字水印的字体选择 | 水印自动回退到微软雅黑 |
+
+**不需要**安装 Node.js / npm——前端全部内置于 `static/`，`package.json` 里的 `npm run dev` 只是 `python server.py` 的别名。
 
 ## 🚀 快速开始
 
